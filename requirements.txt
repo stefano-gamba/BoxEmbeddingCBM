@@ -1,0 +1,9 @@
+tqdm
+requests
+nltk
+scipy
+numpy
+torch
+torchvision
+scikit-learn
+pandas

@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+*.zip
+*.jpg
+*.jpeg
+*.png
+AwA2_Dataset/
+AwA2_Dataset_Features/
+AwA2_Dataset_Labels/
+*.pdf
