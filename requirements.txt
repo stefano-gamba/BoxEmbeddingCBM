@@ -7,3 +7,8 @@ torch
 torchvision
 scikit-learn
 pandas
+networkx
+matplotlib
+seaborn
+pygraphviz
+pydot
