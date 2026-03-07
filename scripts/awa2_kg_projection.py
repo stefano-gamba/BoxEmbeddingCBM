@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import nltk
 from nltk.corpus import wordnet as wn
 from networkx.drawing.nx_pydot import graphviz_layout
+import seaborn as sns
+import pandas as pd
 
 NOISY_CONCEPTS = {
     # 1. Sensi, fisicità astratta e cinematica (Non deducibili in modo affidabile da una foto statica)
@@ -200,6 +202,128 @@ def update_incidence_matrix(original_matrix, original_concepts, new_parents, G):
 
     return new_matrix, all_concepts
 
+
+def compute_conditional_probabilities(G):
+    """
+    Calcola P(x|y) per ogni coppia di nodi basata sulla topologia dell'albero.
+    Implementa le formule euristiche:
+    1. P(n) = |descendants(n)| / |nodes|
+    2. P(x,y) = |leaves where x,y co-occur| / |leaves|
+    3. P(x|y) = P(x,y) / P(y)
+    """
+    print("Inizio calcolo probabilità condizionate...")
+    
+    # 1. Identifica Foglie e Nodi
+    nodes = list(G.nodes())
+    num_nodes = len(nodes)
+    
+    # Le foglie sono i nodi senza archi in uscita (out_degree == 0)
+    leaves = [n for n in nodes if G.out_degree(n) == 0]
+    num_leaves = len(leaves)
+    
+    if num_leaves == 0:
+        raise ValueError("Il grafo non ha foglie. Controlla la struttura di G.")
+
+    # 2. Calcolo Probabilità Marginale P(y) per ogni nodo
+    # Usiamo il numero di discendenti (più il nodo stesso) diviso il totale dei nodi
+    P_marginal = {}
+    for n in nodes:
+        # nx.descendants trova tutti i nodi raggiungibili "sotto" n
+        descendants = nx.descendants(G, n)
+        # +1 perché il nodo "n" conta come discendente di se stesso nel calcolo volumetrico
+        P_marginal[n] = (len(descendants) + 1) / num_nodes
+        
+    # 3. Calcolo Probabilità Congiunta P(x,y)
+    # Contiamo in quante foglie la coppia (x, y) compare insieme come antenati
+    co_occur_counts = {x: {y: 0 for y in nodes} for x in nodes}
+    
+    for leaf in leaves:
+        # Troviamo il percorso genealogico della foglia (antenati + foglia stessa)
+        ancestors_set = nx.ancestors(G, leaf).union({leaf})
+        
+        # Per ogni possibile coppia nel percorso, incrementiamo il contatore
+        for x in ancestors_set:
+            for y in ancestors_set:
+                co_occur_counts[x][y] += 1
+                
+    # 4. Popoliamo il DataFrame della Matrice di Probabilità Condizionata P(x|y)
+    df_cond = pd.DataFrame(0.0, index=nodes, columns=nodes)
+    
+    for x in nodes:
+        for y in nodes:
+            # Formula screenshot: aggregato diviso numero di foglie
+            p_xy = co_occur_counts[x][y] / num_leaves
+            
+            # Formula di Bayes: P(x|y) = P(x,y) / P(y)
+            # Evitiamo divisioni per zero
+            if P_marginal[y] > 0:
+                p_x_given_y = p_xy / P_marginal[y]
+            else:
+                p_x_given_y = 0.0
+                
+            # Dato che l'autore usa due denominatori diversi (|nodes| e |leaves|), 
+            # tronchiamo a 1.0 eventuali anomalie numeriche dell'euristica.
+            df_cond.at[x, y] = min(p_x_given_y, 1.0)
+
+    return df_cond
+
+import numpy as np
+import pandas as pd
+
+def compute_empirical_matrix(train_incidence, train_labels, concept_names):
+    """
+    Calcola la matrice delle probabilità condizionate empiriche V_ij dai dati di training.
+    
+    Args:
+        train_incidence: np.array di shape (num_train_classes, num_concepts).
+                         Contiene 1 o 0.
+        train_labels: np.array o lista di shape (num_train_images,).
+                      Contiene l'ID della classe (da 0 a num_train_classes-1) per ogni immagine.
+        concept_names: lista di stringhe con i nomi dei concetti nell'ordine corretto.
+    """
+
+    # shiftamo train_labels da 1-based a 0-based se necessario
+    if np.min(train_labels) == 1:
+        train_labels = train_labels - 1
+
+    # 1. Espandiamo la matrice di classe in una matrice a livello di singola immagine
+    # Shape risultante: (num_train_images, num_concepts)
+    image_concept_matrix = train_incidence[train_labels]
+    
+    # 2. Calcoliamo le co-occorrenze (Numeratore)
+    # Moltiplicando la matrice trasposta per se stessa otteniamo una matrice (num_concepts x num_concepts)
+    # dove la cella (i, j) è esattamente il "Numero di immagini con c_i=1 e c_j=1"
+    co_occurrences = image_concept_matrix.T @ image_concept_matrix
+    
+    # 3. Calcoliamo le frequenze marginali (Denominatore)
+    # Il "Numero di immagini con c_j=1" corrisponde alla diagonale della matrice di co-occorrenza
+    freq_j = np.diag(co_occurrences)
+    
+    # 4. Calcoliamo V_ij applicando la formula
+    # V_ij = co_occurrences[i, j] / freq_j[j]
+    # Usiamo np.divide per gestire in sicurezza eventuali divisioni per zero (se un concetto non compare mai)
+    V_ij = np.divide(
+        co_occurrences, 
+        freq_j, 
+        out=np.zeros_like(co_occurrences, dtype=float), 
+        where=(freq_j != 0)
+    )
+    
+    # Restituiamo il DataFrame etichettato
+    return pd.DataFrame(V_ij, index=concept_names, columns=concept_names)
+
+def fuse_probability_matrices(df_graph, df_data):
+    """
+    Unisce le certezze del grafo (Knowledge-Driven) con le statistiche delle immagini (Data-Driven)
+    usando l'operazione di Massimo.
+    """
+    print("Fusione delle matrici in corso (Max-Pooling semantico)...")
+    # np.maximum confronta i DataFrame cella per cella e tiene il valore più alto
+    df_fused = np.maximum(df_graph, df_data)
+    return df_fused
+
+
+
 def visualize_tree(G, original_concepts,output_file="gerarchia_concetti.pdf"):
     """Disegna il grafo e lo salva in PDF."""
     plt.figure(figsize=(60, 32))
@@ -227,6 +351,7 @@ def main():
     parser = argparse.ArgumentParser(description="Proietta concetti AwA2 su un Knowledge Graph.")
     parser.add_argument('--concepts', type=str, required=True, help="File txt con i concetti AwA2 (es. predicates.txt)")
     parser.add_argument('--matrix', type=str, required=True, help="File della matrice binaria (es. predicate-matrix-binary.txt)")
+    parser.add_argument('--labels', type=str, required=True, help="File con le etichette di training (es. train_labels.txt)")
     args = parser.parse_args()
 
     # 1. Carica i dati
@@ -235,6 +360,7 @@ def main():
     original_concepts = [c for c in original_concepts if c not in NOISY_CONCEPTS] # Filtriamo i concetti rumorosi prima di costruire la gerarchia
     original_matrix = load_awa2_matrix(args.matrix)
     original_matrix = original_matrix[:, :len(original_concepts)]  # Assicuriamoci che la matrice corrisponda ai concetti filtrati
+    train_labels = np.loadtxt(args.labels, dtype=int)
     print(f"Trovati {len(original_concepts)} concetti. Dimensione matrice: {original_matrix.shape}")
 
     # 2. Costruisci Gerarchia
@@ -258,6 +384,36 @@ def main():
     # 4. Visualizza
     print("Generazione PDF dell'albero gerarchico...")
     visualize_tree(G, original_concepts)
+
+    df_graph = compute_conditional_probabilities(G)
+
+    df_data = compute_empirical_matrix(new_matrix, train_labels, all_concepts)
+
+    df_final = fuse_probability_matrices(df_graph, df_data)
+
+    # --- SALVATAGGIO IN TXT ---
+    # Salviamo arrotondando a 4 decimali per leggibilità
+    df_final.round(4).to_csv('prob_matrix.txt', sep='\t')
+    print(f"Matrice salvata in testo in: prob_matrix.txt")
+
+    # --- SALVATAGGIO IN PDF (Heatmap) ---
+    plt.figure(figsize=(24, 20))
+    # Usiamo seaborn per una mappa di calore molto leggibile
+    ax = sns.heatmap(df_final, cmap="YlGnBu", annot=False, fmt=".2f", 
+                     cbar_kws={'label': 'P( x | y )'}, vmin=0.0, vmax=1.0)
+    
+    plt.title("Matrice di Probabilità Condizionata P(x|y)", fontsize=24, pad=20)
+    plt.ylabel("Concetto X (Dipendente)", fontsize=16)
+    plt.xlabel("Concetto Y (Condizionante)", fontsize=16)
+    
+    # Ruotiamo le etichette per renderle leggibili se ci sono tanti nodi
+    plt.xticks(rotation=90, fontsize=8)
+    plt.yticks(rotation=0, fontsize=8)
+    
+    plt.tight_layout()
+    plt.savefig('prob_heatmap.pdf', format='pdf', dpi=300)
+    plt.close()
+    print(f"Heatmap PDF salvata in: prob_heatmap.pdf")
 
 if __name__ == "__main__":
     main()
