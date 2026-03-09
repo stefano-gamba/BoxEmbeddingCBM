@@ -8,6 +8,12 @@ from networkx.drawing.nx_pydot import graphviz_layout
 import seaborn as sns
 import pandas as pd
 
+import os, sys
+# assicurati che la cartella del progetto sia nella ricerca dei moduli
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__),'..')))
+
+from src.dataset import load_and_split_awa2_features
+
 NOISY_CONCEPTS = {
     # 1. Sensi, fisicità astratta e cinematica (Non deducibili in modo affidabile da una foto statica)
     'smelly', 'fast', 'slow', 'strong', 'weak', 'muscle', 'agility',
@@ -26,7 +32,9 @@ NOISY_CONCEPTS = {
     'ground', 'water', 'tree', 'cave', 'nestspot',
     
     # 5. Concetti relazionali/umani
-    'domestic'
+    'domestic',
+
+    'swims'
 }
 
 def load_awa2_concepts(filepath):
@@ -85,7 +93,7 @@ def build_wordnet_hierarchy(concepts):
         'hops': 'leg',
         'walks': 'leg',
         'leg': 'lower_body_part',
-        'flippers': 'swim',
+        'flippers': 'swims',
     }
 
     # 2. Blacklist dei nodi rumorosi di WordNet
@@ -352,27 +360,55 @@ def main():
     parser.add_argument('--concepts', type=str, required=True, help="File txt con i concetti AwA2 (es. predicates.txt)")
     parser.add_argument('--matrix', type=str, required=True, help="File della matrice binaria (es. predicate-matrix-binary.txt)")
     parser.add_argument('--labels', type=str, required=True, help="File con le etichette di training (es. train_labels.txt)")
+    parser.add_argument('--classes', type=str, required=True, help="File con la mappatura ID -> Nome Classe (es. classes.txt)")
+    parser.add_argument('--train_split', type=str, required=True, help="File con i nomi delle classi di training (es. trainclasses.txt)")
     args = parser.parse_args()
 
     # 1. Carica i dati
     print("Caricamento dati...")
     original_concepts = load_awa2_concepts(args.concepts)
-    original_concepts = [c for c in original_concepts if c not in NOISY_CONCEPTS] # Filtriamo i concetti rumorosi prima di costruire la gerarchia
+    relevant_concepts = [c for c in original_concepts if c not in NOISY_CONCEPTS] # Filtriamo i concetti rumorosi prima di costruire la gerarchia
     original_matrix = load_awa2_matrix(args.matrix)
-    original_matrix = original_matrix[:, :len(original_concepts)]  # Assicuriamoci che la matrice corrisponda ai concetti filtrati
-    train_labels = np.loadtxt(args.labels, dtype=int)
-    print(f"Trovati {len(original_concepts)} concetti. Dimensione matrice: {original_matrix.shape}")
+    train_classes = np.loadtxt(args.train_split, dtype=str)
+    classes_df = pd.read_csv(args.classes, sep='\t', header=None, names=['id', 'class_name'])
+    classes_name = classes_df['class_name'].tolist()
+
+    # filtriamo la matrice per tenere solo i concetti rilevanti (escludendo quelli rumorosi)
+    relevant_concepts_mask = np.isin(original_concepts, relevant_concepts)
+    relevant_concepts_matrix = original_matrix[:, relevant_concepts_mask] 
+
+    features_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/AwA2-features.txt'
+    labels_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/AwA2-labels.txt'
+    classes_path = 'Awa2_Dataset_Labels/Animals_with_Attributes2/classes.txt'
+    train_split_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/trainclasses1.txt'
+    val_split_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/valclasses1.txt'
+    test_split_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/testclasses.txt'
+
+    (_, train_labels), _, _ = load_and_split_awa2_features(
+        features_path,  # Non ci servono le feature per questo script
+        labels_path,    # Non ci servono le label complete, solo i train_labels
+        classes_path,
+        train_split_path,
+        val_split_path,
+        test_split_path
+    )
+
+    # filtriamo la matrice per tenere solo le classi di training (27 classi)
+    #train_mask = np.isin(classes_name, train_classes)
+    #train_matrix = relevant_concepts_matrix[train_mask]
+
+    print(f"Trovati {len(relevant_concepts)} concetti. Dimensione matrice: {relevant_concepts_matrix.shape}")
 
     # 2. Costruisci Gerarchia
     print(f"Costruzione gerarchia usando wordnet...")
-    G, new_parents = build_wordnet_hierarchy(original_concepts)
+    G, new_parents = build_wordnet_hierarchy(relevant_concepts)
 
     
     print(f"Trovati {len(new_parents)} nuovi concetti padre.")
 
     # 3. Aggiorna Matrice
     print("Propagazione delle appartenenze di classe (Bottom-Up)...")
-    new_matrix, all_concepts = update_incidence_matrix(original_matrix, original_concepts, new_parents, G)
+    new_matrix, all_concepts = update_incidence_matrix(relevant_concepts_matrix, relevant_concepts, new_parents, G)
     
     # Salva la nuova matrice
     np.savetxt("AwA2_Dataset_Labels/Animals_with_Attributes2/extended_matrix.txt", new_matrix, fmt='%d')
@@ -383,7 +419,7 @@ def main():
 
     # 4. Visualizza
     print("Generazione PDF dell'albero gerarchico...")
-    visualize_tree(G, original_concepts)
+    visualize_tree(G, relevant_concepts)
 
     df_graph = compute_conditional_probabilities(G)
 
@@ -393,8 +429,8 @@ def main():
 
     # --- SALVATAGGIO IN TXT ---
     # Salviamo arrotondando a 4 decimali per leggibilità
-    df_final.round(4).to_csv('prob_matrix.txt', sep='\t')
-    print(f"Matrice salvata in testo in: prob_matrix.txt")
+    df_final.round(4).to_csv('AwA2_Dataset_Labels/Animals_with_Attributes2/V_gt.csv', sep='\t')
+    print(f"Matrice salvata in testo in: AwA2_Dataset_Labels/Animals_with_Attributes2/V_gt.csv")
 
     # --- SALVATAGGIO IN PDF (Heatmap) ---
     plt.figure(figsize=(24, 20))

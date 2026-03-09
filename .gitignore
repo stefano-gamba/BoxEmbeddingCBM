@@ -215,3 +215,4 @@ AwA2_Dataset_Features/
 AwA2_Dataset_Labels/
 *.pdf
 *.bash
+.DS_Store

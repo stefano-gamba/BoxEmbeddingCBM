@@ -10,7 +10,7 @@ class ConceptBoxModel(nn.Module):
         
         # Proiezione Latent Space -> Single Box Embedding
         # Creiamo un FC layer separato per il centro (x_m) e per l'offset (Delta) DI OGNI CONCETTO
-        self.box_center_projs = nn.ModuleList([
+        self.box_min_projs = nn.ModuleList([
             nn.Linear(latent_dim, box_dim) for _ in range(num_concepts)
         ])
         self.box_offset_projs = nn.ModuleList([
@@ -30,15 +30,35 @@ class ConceptBoxModel(nn.Module):
     def _calc_volume(self, offset):
         return torch.prod(offset + 1e-6, dim=-1)
 
-    def _calc_intersection(self, center_i, offset_i, center_j, offset_j):
-        min_i, max_i = center_i - offset_i, center_i + offset_i
-        min_j, max_j = center_j - offset_j, center_j + offset_j
+    def _calc_intersection(self, min_i, offset_i, min_j, offset_j):
+        max_i = min_i + offset_i
+        max_j = min_j + offset_j
         
         inter_min = torch.max(min_i, min_j)
         inter_max = torch.min(max_i, max_j)
         
         inter_offset = F.relu(inter_max - inter_min) / 2.0
-        return self._calc_volume(inter_offset)
+        vol_inter_real = self._calc_volume(inter_offset)
+
+        # 3. Calcolo del Join(b_i, b_j): il box più piccolo che include entrambi
+        join_min = torch.min(min_i, min_j)
+        join_max = torch.max(max_i, max_j)
+        join_offset = (join_max - join_min) / 2.0
+        vol_join = self._calc_volume(join_offset)
+
+        # 4. Volumi singoli
+        vol_i = self._calc_volume(offset_i)
+        vol_j = self._calc_volume(offset_j)
+
+        # 5. Volume surrogato (Eq. 11)
+        vol_surrogate = vol_i + vol_j - vol_join
+
+
+        # 6. Applichiamo il lower bound: usiamo il massimo tra l'intersezione reale e il surrogato.
+        # Questo garantisce che se l'intersezione reale è 0, il gradiente fluisca tramite il surrogato.
+        final_vol = torch.max(vol_inter_real, vol_surrogate)
+
+        return final_vol
 
     def forward(self, h):
         batch_size = h.size(0)
@@ -47,7 +67,7 @@ class ConceptBoxModel(nn.Module):
         x_m_list = []
         delta_list = []
         for i in range(self.num_concepts):
-            x_m_i = self.box_center_projs[i](h)
+            x_m_i = self.box_min_projs[i](h)
             # Softplus per garantire offset positivi
             delta_i = F.softplus(self.box_offset_projs[i](h)) 
             x_m_list.append(x_m_i)
@@ -80,7 +100,7 @@ class ConceptBoxModel(nn.Module):
                 
         # 4. Predizione
         aligned_boxes = box_coords * p_hat.unsqueeze(-1)
-        aligned_boxes_flat = aligned_boxes.view(batch_size, -1)
+        aligned_boxes_flat = aligned_boxes.view(batch_size, -1) # ha senso? 
         V_flat = V.view(batch_size, -1)
         
         out_fc1 = self.fc1(aligned_boxes_flat)
