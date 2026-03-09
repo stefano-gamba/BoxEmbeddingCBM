@@ -360,8 +360,6 @@ def main():
     parser.add_argument('--concepts', type=str, required=True, help="File txt con i concetti AwA2 (es. predicates.txt)")
     parser.add_argument('--matrix', type=str, required=True, help="File della matrice binaria (es. predicate-matrix-binary.txt)")
     parser.add_argument('--labels', type=str, required=True, help="File con le etichette di training (es. train_labels.txt)")
-    parser.add_argument('--classes', type=str, required=True, help="File con la mappatura ID -> Nome Classe (es. classes.txt)")
-    parser.add_argument('--train_split', type=str, required=True, help="File con i nomi delle classi di training (es. trainclasses.txt)")
     args = parser.parse_args()
 
     # 1. Carica i dati
@@ -369,9 +367,6 @@ def main():
     original_concepts = load_awa2_concepts(args.concepts)
     relevant_concepts = [c for c in original_concepts if c not in NOISY_CONCEPTS] # Filtriamo i concetti rumorosi prima di costruire la gerarchia
     original_matrix = load_awa2_matrix(args.matrix)
-    train_classes = np.loadtxt(args.train_split, dtype=str)
-    classes_df = pd.read_csv(args.classes, sep='\t', header=None, names=['id', 'class_name'])
-    classes_name = classes_df['class_name'].tolist()
 
     # filtriamo la matrice per tenere solo i concetti rilevanti (escludendo quelli rumorosi)
     relevant_concepts_mask = np.isin(original_concepts, relevant_concepts)
@@ -393,17 +388,14 @@ def main():
         test_split_path
     )
 
-    # filtriamo la matrice per tenere solo le classi di training (27 classi)
-    #train_mask = np.isin(classes_name, train_classes)
-    #train_matrix = relevant_concepts_matrix[train_mask]
-
     print(f"Trovati {len(relevant_concepts)} concetti. Dimensione matrice: {relevant_concepts_matrix.shape}")
 
     # 2. Costruisci Gerarchia
     print(f"Costruzione gerarchia usando wordnet...")
     G, new_parents = build_wordnet_hierarchy(relevant_concepts)
 
-    
+    new_parents.append("Animal") # Assicuriamoci che la radice sia inclusa nei concetti finali
+
     print(f"Trovati {len(new_parents)} nuovi concetti padre.")
 
     # 3. Aggiorna Matrice
