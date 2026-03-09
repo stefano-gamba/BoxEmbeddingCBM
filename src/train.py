@@ -4,9 +4,14 @@ import torch.optim as optim
 from src.model import ConceptBoxModel
 import torch.nn.functional as F
 
-def train_step(model, optimizer, h, y_true, c_true, V_true, lambda_c=1.0, lambda_b=1.0):
+def train_step(model, optimizer, h, y_true, class_concept_matrix, V_true, lambda_c=1.0, lambda_b=1.0):
     model.train()
     optimizer.zero_grad()
+
+    # class_concept_matrix ha shape (NUM_CLASSES, NUM_CONCEPTS)
+    # y_true contiene gli indici delle classi per ogni elemento del batch, shape (BATCH_SIZE,)
+    # Indicizzando la matrice con y_true, otteniamo direttamente un tensore di shape (BATCH_SIZE, NUM_CONCEPTS)
+    c_true = class_concept_matrix[y_true].float()
     
     # Forward pass: l'input è 'h', le features già estratte dal backbone
     y_hat_logits, p_hat, V_hat = model(h)
