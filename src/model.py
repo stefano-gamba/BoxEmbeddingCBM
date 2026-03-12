@@ -105,6 +105,6 @@ class ConceptBoxModel(nn.Module):
         
         out_fc1 = self.fc1(aligned_boxes_flat)
         out_fc2 = self.fc2(V_flat)
-        y_hat = out_fc1 + out_fc2
+        y_hat = F.softmax(out_fc1 + out_fc2, dim=-1)
         
         return y_hat, p_hat, V

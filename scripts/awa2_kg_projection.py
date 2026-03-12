@@ -12,7 +12,7 @@ import os, sys
 # assicurati che la cartella del progetto sia nella ricerca dei moduli
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__),'..')))
 
-from src.dataset import load_and_split_awa2_features
+from src.dataset import classical_split_awa2_features
 
 NOISY_CONCEPTS = {
     # 1. Sensi, fisicità astratta e cinematica (Non deducibili in modo affidabile da una foto statica)
@@ -374,18 +374,13 @@ def main():
 
     features_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/AwA2-features.txt'
     labels_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/AwA2-labels.txt'
-    classes_path = 'Awa2_Dataset_Labels/Animals_with_Attributes2/classes.txt'
-    train_split_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/trainclasses1.txt'
-    val_split_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/valclasses1.txt'
-    test_split_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/testclasses.txt'
-
-    (_, train_labels), _, _ = load_and_split_awa2_features(
+    
+    (_, train_labels), _, _ = classical_split_awa2_features(
         features_path,  # Non ci servono le feature per questo script
         labels_path,    # Non ci servono le label complete, solo i train_labels
-        classes_path,
-        train_split_path,
-        val_split_path,
-        test_split_path
+        test_size=0.2,
+        val_size=0.1,
+        random_seed=42
     )
 
     print(f"Trovati {len(relevant_concepts)} concetti. Dimensione matrice: {relevant_concepts_matrix.shape}")

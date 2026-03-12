@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
-def load_and_split_awa2_features(features_path, labels_path, classes_path, 
+def zsl_split_awa2_features(features_path, labels_path, classes_path, 
                                  train_split_path, val_split_path, test_split_path):
     print("Caricamento in corso... (potrebbe richiedere qualche secondo)")
     
@@ -47,5 +48,49 @@ def load_and_split_awa2_features(features_path, labels_path, classes_path,
     print(f"Training set: {X_train.shape[0]} samples (27 classi)")
     print(f"Validation set: {X_val.shape[0]} samples (13 classi)")
     print(f"Test set: {X_test.shape[0]} samples (10 classi)")
+    
+    return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+
+def classical_split_awa2_features(features_path, labels_path, test_size=0.2, val_size=0.1, random_seed=42):
+    """
+    Carica le feature e le label di AWA2 e crea uno split classico stratificato per tutte le 50 classi.
+    
+    Di default crea uno split: 70% Train, 10% Validation, 20% Test.
+    """
+    print("Caricamento dei dati in corso... (potrebbe richiedere qualche secondo)")
+    
+    # 1. Carica le feature (37322 x 2048) e le label (37322 x 1)
+    X = np.loadtxt(features_path, dtype=np.float32)
+    y = np.loadtxt(labels_path, dtype=int)
+    
+    print(f"Dataset caricato correttamente: {X.shape[0]} campioni con {X.shape[1]} feature ciascuno.")
+    
+    # 2. Primo split: Separiamo il Test Set dal resto (Train + Val)
+    # L'argomento stratify=y garantisce che le 50 classi siano bilanciate
+    X_temp, X_test, y_temp, y_test = train_test_split(
+        X, y, 
+        test_size=test_size, 
+        random_state=random_seed, 
+        stratify=y
+    )
+    
+    # 3. Secondo split: Dividiamo il blocco rimanente in Training e Validation
+    # Dobbiamo calcolare la proporzione relativa per il validation set.
+    # Se test_size=0.2 e val_size=0.1, al blocco temp rimane l'80% dei dati.
+    # Il validation deve essere il 10% del totale, quindi il 12.5% dell'80% rimanente (0.1 / 0.8)
+    val_relative_size = val_size / (1.0 - test_size)
+    
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_temp, y_temp, 
+        test_size=val_relative_size, 
+        random_state=random_seed, 
+        stratify=y_temp
+    )
+    
+    # 4. Riepilogo finale
+    print("\n--- Risultati dello Split Stratificato (50 Classi) ---")
+    print(f"Training set:   {X_train.shape[0]} campioni")
+    print(f"Validation set: {X_val.shape[0]} campioni")
+    print(f"Test set:       {X_test.shape[0]} campioni")
     
     return (X_train, y_train), (X_val, y_val), (X_test, y_test)
