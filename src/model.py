@@ -1,110 +1,111 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from box_embeddings.parameterizations import MinDeltaBoxTensor
+from box_embeddings.modules.intersection import GumbelIntersection
+from box_embeddings.modules.volume import SoftVolume
 
-class ConceptBoxModel(nn.Module):
-    def __init__(self, latent_dim, num_concepts, box_dim, num_classes):
-        super(ConceptBoxModel, self).__init__()
-        self.num_concepts = num_concepts
-        self.box_dim = box_dim
+class BoxEmbeddingCBM(nn.Module):
+    """
+    Concept Bottleneck Model basato su Box Embeddings.
+    Estrae concetti geometrici, calcola le loro relazioni logiche 
+    e predice un task a valle usando sia l'attivazione che la gerarchia.
+    """
+    def __init__(
+        self, 
+        feature_dim: int, 
+        num_concepts: int, 
+        num_dims: int = 2, 
+        num_classes: int = 1,
+        vol_temp: float = 0.5,
+        int_temp: float = 0.1
+    ):
+        super(BoxEmbeddingCBM, self).__init__()
         
-        # Proiezione Latent Space -> Single Box Embedding
-        # Creiamo un FC layer separato per il centro (x_m) e per l'offset (Delta) DI OGNI CONCETTO
-        self.box_min_projs = nn.ModuleList([
-            nn.Linear(latent_dim, box_dim) for _ in range(num_concepts)
+        self.k = num_concepts
+        self.num_dims = num_dims
+        
+        # --- 1. ESTRATTORI (Feature -> Geometria -> Probabilità) ---
+        # Proiettano le feature nello spazio dei Box (z, Z)
+        self.projectors = nn.ModuleList([
+            nn.Linear(in_features=feature_dim, out_features=2 * num_dims) 
+            for _ in range(self.k)
         ])
-        self.box_offset_projs = nn.ModuleList([
-            nn.Linear(latent_dim, box_dim) for _ in range(num_concepts)
+        
+        # Predicono l'attivazione del concetto guardando SOLO la sua geometria
+        self.prob_predictors = nn.ModuleList([
+            nn.Linear(in_features=2 * num_dims, out_features=1) 
+            for _ in range(self.k)
         ])
         
-        # Allineamento: calcolo probabilità attivazione concetto (p_hat)
-        # Anche qui, usiamo un layer separato per ogni concetto per dedurre la sua probabilità
-        self.concept_prob_projs = nn.ModuleList([
-            nn.Linear(box_dim * 2, 1) for _ in range(num_concepts)
-        ])
+        # --- 2. MODULI GEOMETRICI ---
+        self.intersection_op = GumbelIntersection(intersection_temperature=int_temp)
+        self.volume_op = SoftVolume(volume_temperature=vol_temp)
         
-        # Predizione finale
-        self.fc1 = nn.Linear(num_concepts * box_dim * 2, num_classes)
-        self.fc2 = nn.Linear(num_concepts * num_concepts, num_classes)
-
-    def _calc_volume(self, offset):
-        return torch.prod(offset + 1e-6, dim=-1)
-
-    def _calc_intersection(self, min_i, offset_i, min_j, offset_j):
-        max_i = min_i + offset_i
-        max_j = min_j + offset_j
+        # --- 3. CLASSIFICATORI TASK FINALE ---
+        # Prende i box scalati (gating): k concetti * 2 coordinate * num_dims
+        self.clf_boxes = nn.Linear(in_features=self.k * 2 * self.num_dims, out_features=num_classes)
         
-        inter_min = torch.max(min_i, min_j)
-        inter_max = torch.min(max_i, max_j)
+        # Prende la matrice delle relazioni K x K
+        self.clf_relations = nn.Linear(in_features=self.k * self.k, out_features=num_classes)
+
+    def forward(self, features):
+        batch_size = features.size(0)
         
-        inter_offset = F.relu(inter_max - inter_min) / 2.0
-        vol_inter_real = self._calc_volume(inter_offset)
-
-        # 3. Calcolo del Join(b_i, b_j): il box più piccolo che include entrambi
-        join_min = torch.min(min_i, min_j)
-        join_max = torch.max(max_i, max_j)
-        join_offset = (join_max - join_min) / 2.0
-        vol_join = self._calc_volume(join_offset)
-
-        # 4. Volumi singoli
-        vol_i = self._calc_volume(offset_i)
-        vol_j = self._calc_volume(offset_j)
-
-        # 5. Volume surrogato (Eq. 11)
-        vol_surrogate = vol_i + vol_j - vol_join
-
-
-        # 6. Applichiamo il lower bound: usiamo il massimo tra l'intersezione reale e il surrogato.
-        # Questo garantisce che se l'intersezione reale è 0, il gradiente fluisca tramite il surrogato.
-        final_vol = torch.max(vol_inter_real, vol_surrogate)
-
-        return final_vol
-
-    def forward(self, h):
-        batch_size = h.size(0)
+        boxes = []
+        logits = []
         
-        # 1. Proiezione separata per ogni concetto
-        x_m_list = []
-        delta_list = []
-        for i in range(self.num_concepts):
-            x_m_i = self.box_min_projs[i](h)
-            # Softplus per garantire offset positivi
-            delta_i = F.softplus(self.box_offset_projs[i](h)) 
-            x_m_list.append(x_m_i)
-            delta_list.append(delta_i)
+        # --- FASE 1: Creazione Box e Probabilità di Attivazione ---
+        for i in range(self.k):
+            # A. Generiamo il box
+            theta_i = self.projectors[i](features)
+            box_i = MinDeltaBoxTensor(theta_i.view(batch_size, 2, self.num_dims))
+            boxes.append(box_i)
             
-        # Stack per ottenere tensori di shape (B, num_concepts, box_dim)
-        x_m = torch.stack(x_m_list, dim=1)
-        delta = torch.stack(delta_list, dim=1)
-        
-        # 2. Allineamento (Probabilità Concetti) separato
-        p_hat_list = []
-        for i in range(self.num_concepts):
-            # Concateniamo centro e offset del singolo concetto
-            box_coords_i = torch.cat([x_m_list[i], delta_list[i]], dim=-1)
-            p_i = torch.sigmoid(self.concept_prob_projs[i](box_coords_i))
-            p_hat_list.append(p_i)
+            # B. Calcoliamo la probabilità di presenza (gating)
+            coords = torch.cat([box_i.z, box_i.Z], dim=-1)
+            logit_i = self.prob_predictors[i](coords).squeeze(-1)
+            logits.append(logit_i)
             
-        # Shape: (B, num_concepts)
-        p_hat = torch.cat(p_hat_list, dim=-1)
-        box_coords = torch.cat([x_m, delta], dim=-1)
+        logits_tensor = torch.stack(logits, dim=1)
+        concept_probs = torch.sigmoid(logits_tensor) # Shape: (batch_size, k)
         
-        # 3. Calcolo Gerarchia (Matrice V)
-        V = torch.zeros((batch_size, self.num_concepts, self.num_concepts), device=h.device)
-        for i in range(self.num_concepts):
-            for j in range(self.num_concepts):
-                vol_inter = self._calc_intersection(x_m[:, i, :], delta[:, i, :], 
-                                                    x_m[:, j, :], delta[:, j, :])
-                vol_j = self._calc_volume(delta[:, j, :])
-                V[:, i, j] = vol_inter / vol_j
-                
-        # 4. Predizione
-        aligned_boxes = box_coords * p_hat.unsqueeze(-1)
-        aligned_boxes_flat = aligned_boxes.view(batch_size, -1) # ha senso? 
-        V_flat = V.view(batch_size, -1)
+        # --- FASE 2: Matrice delle Relazioni Gerarchiche P(C_i | C_j) ---
+        matrix_rows = []
+        for i in range(self.k): # Target
+            row = []
+            for j in range(self.k): # Source
+                int_box = self.intersection_op(boxes[i], boxes[j])
+                # Calcolo di P(C_i | C_j) usando i volumi
+                prob = torch.exp(self.volume_op(int_box) - self.volume_op(boxes[j]))
+                row.append(torch.clamp(prob, 1e-6, 1.0 - 1e-6))
+            matrix_rows.append(torch.stack(row, dim=1))
+            
+        cond_prob_matrix = torch.stack(matrix_rows, dim=1) # Shape: (batch_size, k, k)
         
-        out_fc1 = self.fc1(aligned_boxes_flat)
-        out_fc2 = self.fc2(V_flat)
-        y_hat = F.softmax(out_fc1 + out_fc2, dim=-1)
+        # --- FASE 3: Gating Geometrico (Box Scalati) ---
+        scaled_coords_list = []
+        for i in range(self.k):
+            p = concept_probs[:, i].unsqueeze(-1) # Espandiamo per il broadcasting
+            z_scaled = boxes[i].z * p
+            Z_scaled = boxes[i].Z * p
+            scaled_coords_list.append(torch.cat([z_scaled, Z_scaled], dim=-1))
+            
+        flat_scaled_boxes = torch.cat(scaled_coords_list, dim=-1) # Shape: (batch_size, k * 2 * num_dims)
         
-        return y_hat, p_hat, V
+        # --- FASE 4: Classificazione Task Finale ---
+        flat_relation_matrix = cond_prob_matrix.view(batch_size, self.k * self.k)
+        
+        task_logit_boxes = self.clf_boxes(flat_scaled_boxes)
+        task_logit_rels = self.clf_relations(flat_relation_matrix)
+        
+        # Uniamo i due segnali (puoi anche usare pesi appresi qui in futuro)
+        final_task_logit = task_logit_boxes + task_logit_rels
+        final_task_prob = torch.sigmoid(final_task_logit)
+        
+        # Restituiamo un dizionario con tutto il necessario per Loss e Interpretabilità
+        return {
+            "task_probs": final_task_prob,
+            "concept_probs": concept_probs,
+            "cond_prob_matrix": cond_prob_matrix,
+            "boxes": boxes, # Lista di MinDeltaBoxTensor (utile per la vol_loss anti-collasso)
+        }

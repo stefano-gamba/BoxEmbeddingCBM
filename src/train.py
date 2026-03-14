@@ -1,104 +1,103 @@
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from src.model import ConceptBoxModel
 import torch.nn.functional as F
-import wandb
+from src.model import BoxEmbeddingCBM
 
-def train_step(model, optimizer, h, y_true, class_concept_matrix, V_true, lambda_c=1.0, lambda_b=1.0):
-    model.train()
-    optimizer.zero_grad()
-
-    # class_concept_matrix ha shape (NUM_CLASSES, NUM_CONCEPTS)
-    # y_true contiene gli indici delle classi per ogni elemento del batch, shape (BATCH_SIZE,)
-    # Indicizzando la matrice con y_true, otteniamo direttamente un tensore di shape (BATCH_SIZE, NUM_CONCEPTS)
-    c_true = class_concept_matrix[y_true].float()
+def train(model: BoxEmbeddingCBM, dataloader, optimizer, class_concept_matrix, hierarchy_gt, EPOCHS, device):
+    """
+    Addestra il BoxEmbeddingCBM in modalità Multi-Task.
     
-    # Forward pass: l'input è 'h', le features già estratte dal backbone
-    y_hat_logits, p_hat, V_hat = model(h)
+    Args:
+        model: L'istanza di BoxEmbeddingCBM.
+        dataloader: DataLoader che restituisce (features, labels).
+        optimizer: L'ottimizzatore (es. Adam).
+        class_concept_matrix: Tensore [num_classes, num_concepts] (valori 0.0 o 1.0).
+        hierarchy_gt: Lista di tuple (target_id, source_id, target_prob).
+        EPOCHS: Numero di epoche.
+        device: 'cpu' o 'cuda'.
+    """
+    print(f"Inizio addestramento su dispositivo: {device.upper()}")
+    print("="*50)
     
-    # 1. L_task: Cross Entropy sulle classi finali
-    # L_task = - sum(y_i * log(y_hat_i))
-    loss_task = F.cross_entropy(y_hat_logits, y_true)
-    
-    # 2. L_concept: Binary Cross Entropy sui concetti
-    # L_concepts = - sum(c_i * log(p_hat_i) + (1 - c_i) * log(1 - p_hat_i))
-    loss_concept = F.binary_cross_entropy(p_hat, c_true.float())
-    
-    # 3. L_box
-    # L_interactions = MSE(V, V_hat)
-    loss_box = F.mse_loss(V_hat, V_true)
-    
-    # Loss Totale combinata
-    loss = loss_task + (lambda_c * loss_concept) + (lambda_b * loss_box)
-    
-    # Backward e ottimizzazione
-    loss.backward()
-    optimizer.step()
-    
-    return loss.item(), loss_task.item(), loss_concept.item(), loss_box.item()
-
-
-def train_loop(model, dataloader, optimizer, class_concept_matrix, V_gt_matrix, epochs, device):
-    # Inizializza il progetto su Weights & Biases
-    wandb.init(
-        project="concept-box-model",
-        config={
-            "epochs": epochs,
-            "batch_size": dataloader.batch_size,
-            "learning_rate": optimizer.param_groups[0]['lr'],
-        }
-    )
-
+    # Spostiamo il modello e la matrice di mappatura sul device corretto
     model = model.to(device)
     class_concept_matrix = class_concept_matrix.to(device)
-    V_gt_matrix = V_gt_matrix.to(device)
     
-    for epoch in range(epochs):
+    # Pesi per bilanciare le loss (da "tunnare" in base al dataset)
+    W_TASK = 2.0      # Peso per la predizione della classe finale
+    W_ACT = 1.0       # Peso per l'attivazione corretta dei concetti
+    W_HIER = 1.0      # Peso per la gerarchia logica
+    W_VOL = 0.1       # Peso per l'anti-collasso dei volumi
+    
+    for epoch in range(EPOCHS):
+        model.train() # Impostiamo il modello in modalità training
+        
         epoch_loss = 0.0
-        epoch_task = 0.0
-        epoch_concept = 0.0
-        epoch_box = 0.0
+        epoch_task_loss = 0.0
+        epoch_act_loss = 0.0
+        epoch_hier_loss = 0.0
         
-        for batch_h, batch_y in dataloader:
-            # Spostiamo i dati del batch sul device corretto
-            batch_h = batch_h.to(device)
-            batch_y = batch_y.to(device)
+        for batch_idx, (features, labels) in enumerate(dataloader):
+            # 1. Prepariamo i dati
+            features = features.to(device)
+            # Assicuriamoci che le label siano indici interi 1D per mappare la matrice
+            labels = labels.to(device).long().squeeze() 
             
-            # NOTA: Qui estraiamo la V_true per il batch corrente. 
-            # Assumendo che V_gt_matrix sia globale (per classe o fissa), 
-            # la adatteremo alla dimensione del batch.
-            # Se V_true è fissa per tutti (es. ontologia globale), espandiamola:
-            batch_V_true = V_gt_matrix.unsqueeze(0).expand(batch_h.size(0), -1, -1).to(device)
+            # --- LA MAGIA DELLA MATRICE DI INCIDENZA ---
+            # Estraiamo al volo le etichette dei concetti per l'intero batch!
+            # Shape: (batch_size, num_concepts)
+            concept_labels = class_concept_matrix[labels]
             
-            # Eseguiamo lo step di addestramento
-            loss, l_task, l_concept, l_box = train_step(
-                model, optimizer, batch_h, batch_y, 
-                class_concept_matrix, batch_V_true
-            )
+            optimizer.zero_grad()
             
-            # Accumuliamo le loss per calcolare la media dell'epoca
-            epoch_loss += loss
-            epoch_task += l_task
-            epoch_concept += l_concept
-            epoch_box += l_box
+            # 2. Forward Pass
+            outputs = model(features)
             
-        # Calcoliamo le medie
+            # 3. Calcolo delle Loss Individuali
+            
+            # A. Task Loss (Predizione della classe dell'immagine)
+            # Convertiamo le label nel formato corretto per BCE (float)
+            task_labels = labels.float().unsqueeze(1) 
+            task_loss = F.binary_cross_entropy(outputs["task_probs"], task_labels)
+            
+            # B. Concept Activation Loss
+            act_loss = F.binary_cross_entropy(outputs["concept_probs"], concept_labels)
+            
+            # C. Hierarchy Loss (Estraiamo le probabilità dalla matrice KxK)
+            hier_loss = 0.0
+            batch_size = features.size(0)
+            
+            for target_id, source_id, target_prob in hierarchy_gt:
+                pred_prob = outputs["cond_prob_matrix"][:, target_id, source_id]
+                target_tensor = torch.full((batch_size,), target_prob, dtype=torch.float32, device=device)
+                hier_loss += F.binary_cross_entropy(pred_prob, target_tensor)
+                
+            # D. Volume Regularization (Anti-collasso)
+            vol_loss = 0.0
+            # Usiamo model.k per sapere quanti concetti ci sono e model.volume_op per calcolare
+            for i in range(1, model.k): 
+                vol_loss -= model.volume_op(outputs["boxes"][i]).mean()
+                
+            # 4. Loss Totale Ponderata
+            loss = (W_TASK * task_loss) + (W_ACT * act_loss) + (W_HIER * hier_loss) + (W_VOL * vol_loss)
+            
+            # 5. Backpropagation e Ottimizzazione
+            loss.backward()
+            optimizer.step()
+            
+            # Aggiorniamo le statistiche
+            epoch_loss += loss.item()
+            epoch_task_loss += task_loss.item()
+            epoch_act_loss += act_loss.item()
+            epoch_hier_loss += hier_loss.item()
+            
+        # Logging a fine epoca (calcoliamo le medie sul numero di batch)
         num_batches = len(dataloader)
-        avg_loss = epoch_loss / num_batches
-        avg_task = epoch_task / num_batches
-        avg_concept = epoch_concept / num_batches
-        avg_box = epoch_box / num_batches
-        
-        # Log su wandb
-        wandb.log({
-            "epoch": epoch + 1,
-            "loss/total": avg_loss,
-            "loss/task": avg_task,
-            "loss/concept": avg_concept,
-            "loss/box_interactions": avg_box
-        })
-        
-        print(f"Epoch [{epoch+1}/{epochs}] - Loss: {avg_loss:.4f} | Task: {avg_task:.4f} | Concept: {avg_concept:.4f} | Box: {avg_box:.4f}")
-        
-    wandb.finish()
+        if (epoch + 1) % 10 == 0 or epoch == 0:
+            print(f"Epoca [{epoch+1:3d}/{EPOCHS}] | "
+                  f"Loss Tot: {epoch_loss/num_batches:.4f} | "
+                  f"Task: {epoch_task_loss/num_batches:.4f} | "
+                  f"Act: {epoch_act_loss/num_batches:.4f} | "
+                  f"Hier: {epoch_hier_loss/num_batches:.4f}")
+
+    print("="*50)
+    print("Addestramento completato con successo! 🎉")
