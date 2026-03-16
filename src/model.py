@@ -100,11 +100,10 @@ class BoxEmbeddingCBM(nn.Module):
         
         # Uniamo i due segnali (puoi anche usare pesi appresi qui in futuro)
         final_task_logit = task_logit_boxes + task_logit_rels
-        final_task_prob = torch.sigmoid(final_task_logit)
         
         # Restituiamo un dizionario con tutto il necessario per Loss e Interpretabilità
         return {
-            "task_probs": final_task_prob,
+            "task_logits": final_task_logit,
             "concept_probs": concept_probs,
             "cond_prob_matrix": cond_prob_matrix,
             "boxes": boxes, # Lista di MinDeltaBoxTensor (utile per la vol_loss anti-collasso)
