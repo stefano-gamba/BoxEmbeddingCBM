@@ -7,6 +7,7 @@ from nltk.corpus import wordnet as wn
 from networkx.drawing.nx_pydot import graphviz_layout
 import seaborn as sns
 import pandas as pd
+import json
 
 import os, sys
 # assicurati che la cartella del progetto sia nella ricerca dei moduli
@@ -355,6 +356,97 @@ def visualize_tree(G, original_concepts,output_file="gerarchia_concetti.pdf"):
     plt.savefig(output_file, format='pdf', bbox_inches='tight')
     print(f"Albero gerarchico salvato in: {output_file}")
 
+import networkx as nx
+from itertools import combinations
+
+def build_supervisions_from_graph(G):
+    """
+    Estrae le regole di supervisione (inclusione e disgiunzione) da un DAG di NetworkX.
+    Assunto: arco (u, v) significa che u è genitore di v (v implica u).
+    """
+    supervisions = []
+    
+    # --- 1. Regole di INCLUSIONE (Probabilità = 1.0) ---
+    # Usiamo nx.descendants per prendere sia i figli diretti che i nipoti.
+    # Questo forza la rete a rispettare la gerarchia globale fin da subito.
+    for parent in G.nodes():
+        descendants = nx.descendants(G, parent)
+        for child in descendants:
+            # Formato: (Target/Contenitore, Source/Contenuto, Probabilità)
+            supervisions.append((parent, child, 1.0))
+            
+    # --- 2. Regole di DISGIUNZIONE (Probabilità = 0.0) ---
+    # Cerchiamo tutti i nodi che hanno lo stesso genitore (fratelli)
+    # e imponiamo che i loro box non si sovrappongano.
+    for parent in G.nodes():
+        children = list(G.successors(parent))
+        
+        # Se ci sono almeno 2 figli, creiamo le coppie disgiunte simmetriche
+        if len(children) > 1:
+            for c1, c2 in combinations(children, 2):
+                supervisions.append((c1, c2, 0.0))
+                supervisions.append((c2, c1, 0.0)) # Regola simmetrica salva-vita!
+                
+    # Rimuoviamo eventuali duplicati e ordiniamo per pulizia
+    supervisions = sorted(list(set(supervisions)))
+    
+    return supervisions
+
+
+def numerical_supervision(textual_supervision):
+    # --- 1. CREIAMO IL DIZIONARIO TRADUTTORE DAL FILE TXT ---
+    percorso_file_concetti = "AwA2_Dataset_Labels/Animals_with_Attributes2/extended_concepts.txt" # Cambia con il nome del tuo file
+
+    # Questo dizionario sarà fatto così: {'animal': 50, 'arm': 14, ...}
+    concept_to_idx = {}
+
+    with open(percorso_file_concetti, 'r') as f:
+        for linea in f:
+            # Rimuoviamo gli a capo e dividiamo la riga al PRIMO spazio
+            # Così se un concetto ha più parole (es. "50 cane da caccia"), non si rompe
+            parti = linea.strip().split(' ', 1) 
+            
+            if len(parti) == 2:
+                indice = int(parti[0])
+                # Trasformiamo in minuscolo per evitare errori tipo 'Animal' vs 'animal'
+                nome_concetto = parti[1].strip().lower() 
+                
+                concept_to_idx[nome_concetto] = indice
+
+    print(f"Dizionario creato! Trovati {len(concept_to_idx)} concetti.")
+    # Esempio: print(concept_to_idx['animal']) -> stamperà 50
+
+
+    # --- 2. MAPPIAMO LA TUA LISTA DI SUPERVISIONI ---
+    # Immaginiamo che questa sia la tua lista uscita da networkx
+
+    supervisioni_numeriche = []
+
+    for target_str, source_str, prob in textual_supervision:
+        # Per sicurezza, trasformiamo in minuscolo anche i nomi che vengono dal grafo
+        t_clean = target_str.lower()
+        s_clean = source_str.lower()
+        
+        # Controlliamo che i concetti esistano nel file per evitare errori
+        if t_clean in concept_to_idx and s_clean in concept_to_idx:
+            target_idx = concept_to_idx[t_clean]
+            source_idx = concept_to_idx[s_clean]
+            
+            supervisioni_numeriche.append((target_idx, source_idx, float(prob)))
+        else:
+            print(f"⚠️ Attenzione: '{target_str}' o '{source_str}' non trovato nel file dei concetti!")
+
+    print("\n--- Risultato Mappato ---")
+    print(supervisioni_numeriche)
+
+    # --- 3. SALVATAGGIO IN JSON (Come visto prima) ---
+    import json
+    with open("supervisioni_gerarchia_numeriche.json", "w") as f:
+        json.dump(supervisioni_numeriche, f, indent=4)
+        
+    print("Lista numerica salvata in supervisioni_gerarchia_numeriche.json")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Proietta concetti AwA2 su un Knowledge Graph.")
     parser.add_argument('--concepts', type=str, required=True, help="File txt con i concetti AwA2 (es. predicates.txt)")
@@ -388,6 +480,20 @@ def main():
     # 2. Costruisci Gerarchia
     print(f"Costruzione gerarchia usando wordnet...")
     G, new_parents = build_wordnet_hierarchy(relevant_concepts)
+
+    hierarchy_supervision = build_supervisions_from_graph(G)
+
+    nome_file_json = "supervisioni_gerarchia.json"
+
+    # --- 1. SALVATAGGIO IN JSON ---
+    with open(nome_file_json, 'w') as f:
+        # json.dump prende la tua lista e la scrive direttamente nel file
+        json.dump(hierarchy_supervision, f, indent=4) # indent=4 lo rende leggibile e "a capo"
+
+    print(f"Salvato con successo in {nome_file_json}")
+
+    numerical_supervision(hierarchy_supervision)
+    
 
     new_parents.append("Animal") # Assicuriamoci che la radice sia inclusa nei concetti finali
 
