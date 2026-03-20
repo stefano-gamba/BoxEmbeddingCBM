@@ -208,7 +208,7 @@ def train_and_validate(
     model = model.to(device)
     class_concept_matrix = class_concept_matrix.to(device)
     
-    W_TASK, W_ACT, W_HIER, W_VOL = 2.0, 1.0, 1.0, 0.1
+    W_TASK, W_ACT, W_HIER, W_VOL = 2.0, 1.0, 1.0, 0.0
     
     # Dizionario storico sdoppiato (Train e Val)
     history = {
