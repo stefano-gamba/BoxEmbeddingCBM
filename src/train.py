@@ -228,7 +228,7 @@ def train_and_validate(
         
         for features, labels in train_dataloader:
             features = features.to(device)
-            labels = labels.to(device).long().squeeze()
+            labels = labels.to(device).long().squeeze() - 1
             concept_labels = class_concept_matrix[labels].float()
             
             optimizer.zero_grad()
