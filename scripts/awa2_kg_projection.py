@@ -407,7 +407,7 @@ def numerical_supervision(textual_supervision):
             parti = linea.strip().split(' ', 1) 
             
             if len(parti) == 2:
-                indice = int(parti[0])
+                indice = int(parti[0]) - 1
                 # Trasformiamo in minuscolo per evitare errori tipo 'Animal' vs 'animal'
                 nome_concetto = parti[1].strip().lower() 
                 
