@@ -10,14 +10,14 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device):
     Valuta il BoxEmbeddingCBM sul set di Test e plotta i risultati.
     Non richiede l'optimizer perché non aggiorniamo i pesi!
     """
-    print(f"\nInizio valutazione sul set di TEST ({device.upper()})...")
+    print(f"\nInizio valutazione sul set di TEST ({str(device).upper()})...")
     print("="*50)
     
     model = model.to(device)
     class_concept_matrix = class_concept_matrix.to(device)
     
     # Pesi della loss (devono essere uguali a quelli del training)
-    W_TASK, W_ACT, W_HIER, W_VOL = 2.0, 1.0, 1.0, 0.1
+    W_TASK, W_ACT, W_HIER, W_VOL = 2.0, 1.0, 1.0, 0.0
     
     # Inizializziamo i contatori
     test_loss = 0.0
@@ -40,8 +40,8 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device):
     with torch.no_grad():
         for features, labels in dataloader:
             features = features.to(device)
-            labels = labels.to(device).long().squeeze()
-            concept_labels = class_concept_matrix[labels]
+            labels = labels.to(device).long().view(-1) - 1
+            concept_labels = class_concept_matrix[labels].float()
             
             # Forward Pass
             outputs = model(features)
