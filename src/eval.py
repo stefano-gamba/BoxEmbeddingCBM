@@ -106,29 +106,35 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device):
     ax1.set_ylabel('Valore Loss', fontsize=12)
     ax1.grid(axis='y', linestyle='--', alpha=0.6)
     
-    # Aggiungiamo i valori numerici sopra le barre
     for bar in bars:
         yval = bar.get_height()
         ax1.text(bar.get_x() + bar.get_width()/2, yval + 0.01, f'{yval:.3f}', ha='center', va='bottom', fontweight='bold')
 
-    # 2. Matrice di Confusione
-    cm = confusion_matrix(all_true_labels, all_pred_labels)
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax2, cbar=False, 
-                annot_kws={"size": 14, "weight": "bold"})
+    # 2. Matrice di Confusione FIXATA
+    # Fissiamo il numero totale di classi (model.k dovrebbe essere 50)
+    num_classi_totali = model.k 
+    
+    # Forziamo sklearn a creare una matrice 50x50, anche se alcune classi non compaiono nel test
+    cm = confusion_matrix(all_true_labels, all_pred_labels, labels=np.arange(num_classi_totali))
+    
+    # Creiamo etichette corte (es. "C0", "C1", "C2") per risparmiare spazio visivo
+    etichette_assi = [f'C{i}' for i in range(num_classi_totali)]
+    
+    # Passiamo le etichette direttamente a seaborn tramite xticklabels/yticklabels
+    sns.heatmap(cm, annot=False, cmap='Blues', ax=ax2, cbar=True,
+                xticklabels=etichette_assi, yticklabels=etichette_assi)
+    
+    # Ruotiamo leggermente le etichette per farle entrare meglio
+    ax2.tick_params(axis='x', rotation=90, labelsize=8)
+    ax2.tick_params(axis='y', rotation=0, labelsize=8)
     
     ax2.set_title(f'Matrice di Confusione (Acc: {accuracy*100:.1f}%)', fontsize=14)
     ax2.set_xlabel('Classe Predetta', fontsize=12)
     ax2.set_ylabel('Classe Reale', fontsize=12)
-    # Sostituisci con i nomi delle tue classi se li hai (es. ['Negativo', 'Positivo'])
-    num_classi_trovate = len(np.unique(all_true_labels))
-    etichette_assi = [f'Classe {i}' for i in range(num_classi_trovate)]
-    ax2.set_xticklabels(etichette_assi) 
-    ax2.set_yticklabels(etichette_assi)
     
     plt.tight_layout()
     plt.show()
     
-    # Restituiamo le metriche nel caso servano per altri calcoli
     return {
         'accuracy': accuracy,
         'tot_loss': avg_loss,
