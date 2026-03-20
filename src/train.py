@@ -275,7 +275,7 @@ def train_and_validate(
             for features, labels in val_dataloader:
                 features = features.to(device)
                 labels = labels.to(device).long().view(-1) - 1
-                concept_labels = class_concept_matrix[labels]
+                concept_labels = class_concept_matrix[labels].float()
                 
                 outputs = model(features)
                 
