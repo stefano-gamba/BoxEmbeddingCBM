@@ -48,7 +48,7 @@ class BoxEmbeddingCBM(nn.Module):
         # Prende la matrice delle relazioni K x K
         self.clf_relations = nn.Linear(in_features=self.k * self.k, out_features=num_classes)
 
-    def forward(self, features):
+    """ def forward(self, features):
         batch_size = features.size(0)
         
         boxes = []
@@ -107,4 +107,76 @@ class BoxEmbeddingCBM(nn.Module):
             "concept_probs": concept_probs,
             "cond_prob_matrix": cond_prob_matrix,
             "boxes": boxes, # Lista di MinDeltaBoxTensor (utile per la vol_loss anti-collasso)
+        } """
+    
+    def forward(self, features):
+        batch_size = features.size(0)
+        
+        boxes = []
+        logits = []
+        thetas = [] # Lista per salvare i parametri geometrici grezzi
+        
+        # --- FASE 1: Creazione Box e Probabilità ---
+        for i in range(self.k):
+            theta_i = self.projectors[i](features).view(batch_size, 2, self.num_dims)
+            thetas.append(theta_i) # Salviamo theta per la vettorizzazione
+            
+            box_i = MinDeltaBoxTensor(theta_i)
+            boxes.append(box_i)
+            
+            coords = torch.cat([box_i.z, box_i.Z], dim=-1)
+            logit_i = self.prob_predictors[i](coords).squeeze(-1)
+            logits.append(logit_i)
+            
+        logits_tensor = torch.stack(logits, dim=1)
+        concept_probs = torch.sigmoid(logits_tensor) 
+        
+        # =========================================================
+        # --- FASE 2 VETTORIZZATA ---
+        # =========================================================
+        # 1. Impiliamo tutti i box in un unico mega-tensore: shape [batch, k, 2, dims]
+        theta_all = torch.stack(thetas, dim=1) 
+        
+        # 2. Sfruttiamo il Broadcasting aggiungendo dimensioni fittizie
+        theta_target = theta_all.unsqueeze(2)  # [batch, k, 1, 2, dims]
+        theta_source = theta_all.unsqueeze(1)  # [batch, 1, k, 2, dims]
+        
+        # 3. Creiamo due Mega-Box virtuali
+        box_target = MinDeltaBoxTensor(theta_target)
+        box_source = MinDeltaBoxTensor(theta_source)
+        
+        # 4. Calcoliamo TUTTE le k*k intersezioni in UN SINGOLO PASSAGGIO!
+        int_box = self.intersection_op(box_target, box_source)
+        
+        # 5. Volumi e probabilità vettorizzati
+        vol_int = self.volume_op(int_box)       # [batch, k, k]
+        vol_source = self.volume_op(box_source) # [batch, 1, k]
+        
+        prob = torch.exp(vol_int - vol_source)
+        cond_prob_matrix = torch.clamp(prob, 1e-6, 1.0 - 1e-6)
+        # =========================================================
+        
+        # --- FASE 3: Gating Geometrico ---
+        scaled_coords_list = []
+        for i in range(self.k):
+            p = concept_probs[:, i].unsqueeze(-1)
+            z_scaled = boxes[i].z * p
+            Z_scaled = boxes[i].Z * p
+            scaled_coords_list.append(torch.cat([z_scaled, Z_scaled], dim=-1))
+            
+        flat_scaled_boxes = torch.cat(scaled_coords_list, dim=-1)
+        
+        # --- FASE 4: Classificazione Task Finale ---
+        flat_relation_matrix = cond_prob_matrix.view(batch_size, self.k * self.k)
+        
+        task_logit_boxes = self.clf_boxes(flat_scaled_boxes)
+        task_logit_rels = self.clf_relations(flat_relation_matrix)
+        
+        final_task_logit = task_logit_boxes + task_logit_rels
+        
+        return {
+            "task_logits": final_task_logit,
+            "concept_probs": concept_probs,
+            "cond_prob_matrix": cond_prob_matrix,
+            "boxes": boxes, 
         }
