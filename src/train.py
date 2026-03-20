@@ -201,7 +201,7 @@ def train_and_validate(
         save_dir="checkpoints", 
         save_interval=10
 ):
-    print(f"Inizio Addestramento e Validazione su: {device.upper()}")
+    print(f"Inizio Addestramento e Validazione su: {str(device).upper()}")
     print("="*60)
     os.makedirs(save_dir, exist_ok=True)
     
