@@ -229,7 +229,14 @@ def train_and_validate(
         for features, labels in train_dataloader:
             features = features.to(device)
             labels = labels.to(device).long().squeeze() - 1
+
+            assert labels.max() < 50, f"TROVATO: Una label è troppo alta! Max: {labels.max()}"
+            assert labels.min() >= 0, f"TROVATO: Una label è negativa! Min: {labels.min()}"
+
             concept_labels = class_concept_matrix[labels].float()
+
+            assert concept_labels.max() <= 1.0, f"TROVATO: Matrice non binaria! Max val: {concept_labels.max()}"
+            assert concept_labels.min() >= 0.0, f"TROVATO: Matrice con negativi! Min val: {concept_labels.min()}"
             
             optimizer.zero_grad()
             outputs = model(features)
@@ -240,6 +247,7 @@ def train_and_validate(
             
             hier_loss = 0.0
             for tgt, src, prob in hierarchy_gt:
+                assert tgt < 50 and src < 50, f"TROVATO: Indice gerarchia fuori limiti! tgt:{tgt}, src:{src}"
                 pred_prob = outputs["cond_prob_matrix"][:, tgt, src]
                 tgt_tensor = torch.full((features.size(0),), prob, dtype=torch.float32, device=device)
                 hier_loss += F.binary_cross_entropy(pred_prob, tgt_tensor)
