@@ -78,10 +78,12 @@ def explain_prediction(model, image_index, features, k, concept_names=None, targ
         print(f"--- 1. CONTRIBUTI DEI CONCETTI ALLA CLASSE {target_class} ---")
         box_weights = model.clf_boxes.weight[target_class] 
         concept_contributions = []
+
+        box_dim = 2 * model.num_dims
         
         for i in range(k):
             coords_i = scaled_coords_list[i]
-            weights_i = box_weights[i*4 : (i+1)*4]
+            weights_i = box_weights[i*box_dim : (i+1)*box_dim]
             
             contrib = torch.dot(coords_i, weights_i).item()
             concept_contributions.append((concept_names[i], contrib, concept_probs[i].item()))
