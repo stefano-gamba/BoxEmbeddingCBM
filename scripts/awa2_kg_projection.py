@@ -168,7 +168,7 @@ def build_wordnet_hierarchy(concepts):
             else:
                 G.add_edge(root_node, previous_node)
                 
-    return G, list(new_parents_set)
+    return G, sorted(list(new_parents_set))
 
 
 def update_incidence_matrix(original_matrix, original_concepts, new_parents, G):
@@ -393,53 +393,22 @@ def build_supervisions_from_graph(G):
     return supervisions
 
 
-def numerical_supervision(textual_supervision):
-    # --- 1. CREIAMO IL DIZIONARIO TRADUTTORE DAL FILE TXT ---
-    percorso_file_concetti = "AwA2_Dataset_Labels/Animals_with_Attributes2/extended_concepts.txt" # Cambia con il nome del tuo file
-
-    # Questo dizionario sarà fatto così: {'animal': 50, 'arm': 14, ...}
-    concept_to_idx = {}
-
-    with open(percorso_file_concetti, 'r') as f:
-        for linea in f:
-            # Rimuoviamo gli a capo e dividiamo la riga al PRIMO spazio
-            # Così se un concetto ha più parole (es. "50 cane da caccia"), non si rompe
-            parti = linea.strip().split(' ', 1) 
-            
-            if len(parti) == 2:
-                indice = int(parti[0]) - 1
-                # Trasformiamo in minuscolo per evitare errori tipo 'Animal' vs 'animal'
-                nome_concetto = parti[1].strip().lower() 
-                
-                concept_to_idx[nome_concetto] = indice
-
-    print(f"Dizionario creato! Trovati {len(concept_to_idx)} concetti.")
-    # Esempio: print(concept_to_idx['animal']) -> stamperà 50
-
-
-    # --- 2. MAPPIAMO LA TUA LISTA DI SUPERVISIONI ---
-    # Immaginiamo che questa sia la tua lista uscita da networkx
-
+def numerical_supervision(textual_supervision, all_concepts):
+    # Creiamo il dizionario direttamente dalla lista in memoria!
+    concept_to_idx = {c.lower(): i for i, c in enumerate(all_concepts)}
+    
     supervisioni_numeriche = []
-
     for target_str, source_str, prob in textual_supervision:
-        # Per sicurezza, trasformiamo in minuscolo anche i nomi che vengono dal grafo
         t_clean = target_str.lower()
         s_clean = source_str.lower()
         
-        # Controlliamo che i concetti esistano nel file per evitare errori
         if t_clean in concept_to_idx and s_clean in concept_to_idx:
             target_idx = concept_to_idx[t_clean]
             source_idx = concept_to_idx[s_clean]
-            
             supervisioni_numeriche.append((target_idx, source_idx, float(prob)))
         else:
-            print(f"⚠️ Attenzione: '{target_str}' o '{source_str}' non trovato nel file dei concetti!")
+            print(f"⚠️ Attenzione: '{target_str}' o '{source_str}' non trovato!")
 
-    print("\n--- Risultato Mappato ---")
-    print(supervisioni_numeriche)
-
-    # --- 3. SALVATAGGIO IN JSON (Come visto prima) ---
     import json
     with open("supervisioni_gerarchia_numeriche.json", "w") as f:
         json.dump(supervisioni_numeriche, f, indent=4)
@@ -485,14 +454,7 @@ def main():
 
     nome_file_json = "supervisioni_gerarchia.json"
 
-    # --- 1. SALVATAGGIO IN JSON ---
-    with open(nome_file_json, 'w') as f:
-        # json.dump prende la tua lista e la scrive direttamente nel file
-        json.dump(hierarchy_supervision, f, indent=4) # indent=4 lo rende leggibile e "a capo"
-
     print(f"Salvato con successo in {nome_file_json}")
-
-    numerical_supervision(hierarchy_supervision)
     
 
     new_parents.append("Animal") # Assicuriamoci che la radice sia inclusa nei concetti finali
@@ -502,6 +464,13 @@ def main():
     # 3. Aggiorna Matrice
     print("Propagazione delle appartenenze di classe (Bottom-Up)...")
     new_matrix, all_concepts = update_incidence_matrix(relevant_concepts_matrix, relevant_concepts, new_parents, G)
+
+    numerical_supervision(hierarchy_supervision, all_concepts)
+
+    # --- 1. SALVATAGGIO IN JSON ---
+    with open(nome_file_json, 'w') as f:
+        # json.dump prende la tua lista e la scrive direttamente nel file
+        json.dump(hierarchy_supervision, f, indent=4) # indent=4 lo rende leggibile e "a capo"
     
     # Salva la nuova matrice
     np.savetxt("AwA2_Dataset_Labels/Animals_with_Attributes2/extended_matrix.txt", new_matrix, fmt='%d')
