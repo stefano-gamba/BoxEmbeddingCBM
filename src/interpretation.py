@@ -6,9 +6,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import seaborn as sns
 
-def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept_names=None):
+
+def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept_names=None, target_class=None):
     """
-    Spiega la decisione del modello per una singola immagine del batch.
+    Spiega la decisione del modello per una singola immagine, 
+    adattata per la classificazione multiclasse.
     """
     if concept_names is None:
         concept_names = [f"C{i}" for i in range(k)]
@@ -18,11 +20,10 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
     print(f"{'='*50}")
     
     with torch.no_grad():
-
         device = next(model.parameters()).device
-
-        # 1. Ricalcoliamo il forward pass solo per questa immagine
-        feat = features[image_index].unsqueeze(0).to(device) # Shape: (1, feature_dim)
+        
+        # 1. Forward pass concepts
+        feat = features[image_index].unsqueeze(0).to(device)
         
         boxes = []
         logits = []
@@ -35,9 +36,9 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
             logits.append(model.prob_predictors[i](coords).squeeze(-1))
             
         logits_tensor = torch.stack(logits, dim=1)
-        concept_probs = torch.sigmoid(logits_tensor)[0] # Probabilità per l'immagine
+        concept_probs = torch.sigmoid(logits_tensor)[0]
         
-        # 2. Ricalcoliamo la Matrice delle Relazioni (P(Ci | Cj))
+        # 2. Matrice delle Relazioni
         cond_prob_matrix = torch.zeros((k, k), device=device)
         for i in range(k):
             for j in range(k):
@@ -45,7 +46,7 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
                 prob = torch.exp(model.volume_op(int_box) - model.volume_op(boxes[j]))
                 cond_prob_matrix[i, j] = torch.clamp(prob, 1e-6, 1.0 - 1e-6)[0]
                 
-        # 3. Ricalcoliamo i Box Scalati
+        # 3. Box Scalati
         scaled_coords_list = []
         for i in range(k):
             p = concept_probs[i]
@@ -56,57 +57,63 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
         flat_scaled_boxes = torch.cat(scaled_coords_list, dim=-1).unsqueeze(0)
         flat_relation_matrix = cond_prob_matrix.view(1, k * k)
         
-        # 4. Predizione Finale
+        # 4. Predizione Finale Multiclasse
         logit_boxes = model.clf_boxes(flat_scaled_boxes)
         logit_rels = model.clf_relations(flat_relation_matrix)
-        final_prob = torch.sigmoid(logit_boxes + logit_rels).item()
         
-        print(f"PREDIZIONE TASK FINALE: {final_prob:.4f} (1.0 = Positivo, 0.0 = Negativo)\n")
+        # Calcoliamo le probabilità per tutte le classi (es. 50 classi)
+        all_probs = torch.softmax(logit_boxes + logit_rels)[0] 
+        
+        # Se target_class non è specificata, spieghiamo la classe con la probabilità più alta
+        if target_class is None:
+            target_class = torch.argmax(all_probs).item()
+            
+        final_prob = all_probs[target_class].item()
+        
+        print(f"CLASSE ANALIZZATA: {target_class}")
+        print(f"PROBABILITÀ PER LA CLASSE {target_class}: {final_prob:.4f}\n")
         
         # --- ESTRAZIONE DEI CONTRIBUTI ---
         
-        print("--- 1. CONTRIBUTI DEI SINGOLI CONCETTI (Presenza & Geometria) ---")
-        box_weights = model.clf_boxes.weight[0] # Shape: (k * 4)
+        print(f"--- 1. CONTRIBUTI DEI CONCETTI ALLA CLASSE {target_class} ---")
+        # FIX CHIAVE: Selezioniamo solo i pesi associati alla target_class
+        box_weights = model.clf_boxes.weight[target_class] 
         concept_contributions = []
         
         for i in range(k):
-            # Estraiamo le 4 coordinate scalate del concetto e i 4 pesi associati
             coords_i = scaled_coords_list[i]
             weights_i = box_weights[i*4 : (i+1)*4]
             
-            # Il contributo è il prodotto scalare: sum(coordinata * peso)
             contrib = torch.dot(coords_i, weights_i).item()
             concept_contributions.append((concept_names[i], contrib, concept_probs[i].item()))
             
-        # Ordiniamo dal contributo più positivo a quello più negativo
         concept_contributions.sort(key=lambda x: x[1], reverse=True)
         for name, contrib, prob in concept_contributions:
             segno = "+" if contrib > 0 else ""
-            print(f"{name:5} | Attivazione: {prob:.2f} | Contributo al Task: {segno}{contrib:.4f}")
+            print(f"{name:5} | Attivazione: {prob:.2f} | Contributo: {segno}{contrib:.4f}")
             
             
-        print("\n--- 2. CONTRIBUTI DELLE RELAZIONI LOGICHE (P(Target | Source)) ---")
-        rel_weights = model.clf_relations.weight[0] # Shape: (k * k)
+        print(f"\n--- 2. CONTRIBUTI DELLE RELAZIONI ALLA CLASSE {target_class} ---")
+        # FIX CHIAVE: Selezioniamo solo i pesi associati alla target_class
+        rel_weights = model.clf_relations.weight[target_class] 
         relation_contributions = []
         
         for i in range(k):
             for j in range(k):
-                if i == j: continue # Ignoriamo la relazione di un concetto con se stesso (sempre 1.0)
+                if i == j: continue 
                 
                 idx = i * k + j
                 weight = rel_weights[idx].item()
                 prob = cond_prob_matrix[i, j].item()
                 
                 contrib = prob * weight
-                # Filtriamo solo le relazioni che hanno una probabilità e un peso rilevanti
                 if abs(contrib) > 0.01: 
                     relation_contributions.append((concept_names[i], concept_names[j], contrib, prob))
                     
-        # Ordiniamo per contributo
         relation_contributions.sort(key=lambda x: x[2], reverse=True)
         for target, source, contrib, prob in relation_contributions:
             segno = "+" if contrib > 0 else ""
-            print(f"P({target} | {source}) = {prob:.2f} | Contributo al Task: {segno}{contrib:.4f}")
+            print(f"P({target} | {source}) = {prob:.2f} | Contributo: {segno}{contrib:.4f}")
 
 
 def visualize_ontology_box(model, dataloader, device, concept_names=None):
