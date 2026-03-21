@@ -7,10 +7,11 @@ import matplotlib.patches as patches
 import seaborn as sns
 
 
-def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept_names=None, target_class=None):
+def explain_prediction(model, image_index, features, k, concept_names=None, target_class=None, show_plot=True):
     """
-    Spiega la decisione del modello per una singola immagine, 
-    adattata per la classificazione multiclasse.
+    Spiega la decisione del modello per una singola immagine.
+    Usa Sigmoid per i concetti e Softmax per le classi finali.
+    Include una visualizzazione grafica dei contributi.
     """
     if concept_names is None:
         concept_names = [f"C{i}" for i in range(k)]
@@ -36,7 +37,7 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
             logits.append(model.prob_predictors[i](coords).squeeze(-1))
             
         logits_tensor = torch.stack(logits, dim=1)
-        concept_probs = torch.sigmoid(logits_tensor)[0]
+        concept_probs = torch.sigmoid(logits_tensor)[0] # Sigmoid per i concetti (multi-label)
         
         # 2. Matrice delle Relazioni
         cond_prob_matrix = torch.zeros((k, k), device=device)
@@ -61,10 +62,9 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
         logit_boxes = model.clf_boxes(flat_scaled_boxes)
         logit_rels = model.clf_relations(flat_relation_matrix)
         
-        # Calcoliamo le probabilità per tutte le classi (es. 50 classi)
-        all_probs = torch.softmax(logit_boxes + logit_rels)[0] 
+        # Softmax per le classi finali (mutuamente esclusive)
+        all_probs = torch.softmax(logit_boxes + logit_rels, dim=-1)[0] 
         
-        # Se target_class non è specificata, spieghiamo la classe con la probabilità più alta
         if target_class is None:
             target_class = torch.argmax(all_probs).item()
             
@@ -76,7 +76,6 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
         # --- ESTRAZIONE DEI CONTRIBUTI ---
         
         print(f"--- 1. CONTRIBUTI DEI CONCETTI ALLA CLASSE {target_class} ---")
-        # FIX CHIAVE: Selezioniamo solo i pesi associati alla target_class
         box_weights = model.clf_boxes.weight[target_class] 
         concept_contributions = []
         
@@ -92,9 +91,7 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
             segno = "+" if contrib > 0 else ""
             print(f"{name:5} | Attivazione: {prob:.2f} | Contributo: {segno}{contrib:.4f}")
             
-            
         print(f"\n--- 2. CONTRIBUTI DELLE RELAZIONI ALLA CLASSE {target_class} ---")
-        # FIX CHIAVE: Selezioniamo solo i pesi associati alla target_class
         rel_weights = model.clf_relations.weight[target_class] 
         relation_contributions = []
         
@@ -114,6 +111,41 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
         for target, source, contrib, prob in relation_contributions:
             segno = "+" if contrib > 0 else ""
             print(f"P({target} | {source}) = {prob:.2f} | Contributo: {segno}{contrib:.4f}")
+
+        # --- VISUALIZZAZIONE GRAFICA ---
+        if show_plot:
+            # Estraiamo i top 15 concetti e top 15 relazioni in base al valore assoluto 
+            # (per evitare grafici illeggibili se k è molto grande)
+            top_concepts = sorted(concept_contributions, key=lambda x: abs(x[1]), reverse=True)[:15]
+            top_concepts.sort(key=lambda x: x[1]) # Riordiniamo dal più negativo al più positivo per il plot
+            
+            top_relations = sorted(relation_contributions, key=lambda x: abs(x[2]), reverse=True)[:15]
+            top_relations.sort(key=lambda x: x[2])
+            
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+            
+            # Plot Concetti
+            c_names = [f"{x[0]} (p={x[2]:.2f})" for x in top_concepts]
+            c_vals = [x[1] for x in top_concepts]
+            c_colors = ['#2ca02c' if v > 0 else '#d62728' for v in c_vals]
+            
+            ax1.barh(c_names, c_vals, color=c_colors)
+            ax1.set_title(f"Top 15 Contributi Concetti (Classe {target_class})", fontweight='bold')
+            ax1.set_xlabel("Impatto sulla predizione (Valore Contributo)")
+            ax1.grid(axis='x', linestyle='--', alpha=0.7)
+            
+            # Plot Relazioni
+            r_names = [f"P({x[0]}|{x[1]})" for x in top_relations]
+            r_vals = [x[2] for x in top_relations]
+            r_colors = ['#2ca02c' if v > 0 else '#d62728' for v in r_vals]
+            
+            ax2.barh(r_names, r_vals, color=r_colors)
+            ax2.set_title(f"Top 15 Contributi Relazioni (Classe {target_class})", fontweight='bold')
+            ax2.set_xlabel("Impatto sulla predizione (Valore Contributo)")
+            ax2.grid(axis='x', linestyle='--', alpha=0.7)
+            
+            plt.tight_layout()
+            plt.show()
 
 
 def visualize_ontology_box(model, dataloader, device, concept_names=None):
