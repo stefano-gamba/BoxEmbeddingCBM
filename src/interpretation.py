@@ -18,8 +18,11 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
     print(f"{'='*50}")
     
     with torch.no_grad():
+
+        device = next(model.parameters()).device
+
         # 1. Ricalcoliamo il forward pass solo per questa immagine
-        feat = features[image_index].unsqueeze(0) # Shape: (1, feature_dim)
+        feat = features[image_index].unsqueeze(0).to(device) # Shape: (1, feature_dim)
         
         boxes = []
         logits = []
@@ -35,7 +38,7 @@ def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept
         concept_probs = torch.sigmoid(logits_tensor)[0] # Probabilità per l'immagine
         
         # 2. Ricalcoliamo la Matrice delle Relazioni (P(Ci | Cj))
-        cond_prob_matrix = torch.zeros((k, k))
+        cond_prob_matrix = torch.zeros((k, k), device=device)
         for i in range(k):
             for j in range(k):
                 int_box = model.intersection_op(boxes[i], boxes[j])
