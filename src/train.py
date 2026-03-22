@@ -204,7 +204,6 @@ def train_and_validate_optuna(
         EPOCHS, 
         device,
         W_TASK=2.0, W_ACT=1.0, W_HIER=1.0, W_VOL=0.0,
-        trial: Trial = None,
         save_dir="checkpoints", 
         save_interval=10
 ):

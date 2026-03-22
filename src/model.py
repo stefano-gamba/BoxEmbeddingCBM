@@ -41,7 +41,7 @@ class BoxEmbeddingCBM(nn.Module):
         # --- 2. MODULI GEOMETRICI ---
         self.intersection_op = GumbelIntersection(intersection_temperature=int_temp)
         self.volume_op = SoftVolume(volume_temperature=vol_temp)
-        self.box_regularizer = L2SideBoxRegularizer(weight=1, log_scale=True)
+        self.box_regularizer = L2SideBoxRegularizer(weight=1, log_scale=False)
         
         # --- 3. CLASSIFICATORI TASK FINALE ---
         # Prende i box scalati (gating): k concetti * 2 coordinate * num_dims
