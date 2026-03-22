@@ -376,7 +376,7 @@ def objective(
     model = BoxEmbeddingCBM(LATENT_DIM, NUM_CONCEPTS, box_dim, NUM_CLASSES).to(device) 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
-    EPOCHS_TUNING = 20 
+    EPOCHS_TUNING = 10
     
     history = train_and_validate_optuna(
         model=model,
