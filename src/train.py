@@ -355,12 +355,13 @@ def objective(
         save_dir: str
 ):
     
-    w_task = trial.suggest_float("w_task", 0.1, 5.0)
-    w_act  = trial.suggest_float("w_act", 0.0, 3.0)
-    w_hier = trial.suggest_float("w_hier", 0.0, 3.0)
-    w_vol  = trial.suggest_float("w_vol", 0.0, 1.0)
+    w_task = trial.suggest_float("w_task", 0.5, 2.0)
+    w_act  = trial.suggest_float("w_act", 1.0, 3.0)
+    w_hier = trial.suggest_float("w_hier", 1.0, 2.0)
+    w_vol  = trial.suggest_float("w_vol", 0.0, 0.1)
     
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
+    weight_decay = 1e-5
 
     images, labels = next(iter(train_loader))
     box_dim = trial.suggest_int("box_dim", 4, 16)
@@ -373,7 +374,7 @@ def objective(
     print(f"Numero di classi: {NUM_CLASSES}")
 
     model = BoxEmbeddingCBM(LATENT_DIM, NUM_CONCEPTS, box_dim, NUM_CLASSES).to(device) 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
     EPOCHS_TUNING = 20 
     
