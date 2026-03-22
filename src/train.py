@@ -331,20 +331,11 @@ def train_and_validate_optuna(
               f"VAL: Loss={history['val']['tot_loss'][-1]:.3f}, Acc={history['val']['acc'][-1]*100:.1f}%")
         
         current_val_task_loss = val_task / v_batches
-        
-        # PRUNING
-        if trial is not None:
-            # Comunichiamo a Optuna l'accuratezza corrente a questa epoca
-            trial.report(current_val_task_loss, epoch)
-            # Se Optuna capisce che questa run sta andando troppo male rispetto alle altre, la taglia
-            if trial.should_prune():
-                print(f"Trial potato (pruned) all'epoca {epoch+1}!")
-                raise optuna.exceptions.TrialPruned()
 
-    if current_val_task_loss < best_val_task_loss:
-        best_val_task_loss = current_val_task_loss
-        best_path = os.path.join(save_dir, "model_best.pt")
-        torch.save(model.state_dict(), best_path)
+        if current_val_task_loss < best_val_task_loss:
+            best_val_task_loss = current_val_task_loss
+            best_path = os.path.join(save_dir, "model_best.pt")
+            torch.save(model.state_dict(), best_path)
 
     return history
 
