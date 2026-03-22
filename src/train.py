@@ -394,8 +394,7 @@ def objective(
         W_TASK=w_task, 
         W_ACT=w_act, 
         W_HIER=w_hier, 
-        W_VOL=w_vol,
-        trial=trial,          
+        W_VOL=w_vol,          
         save_dir=f"{save_dir}{trial.number}"
     )
     
