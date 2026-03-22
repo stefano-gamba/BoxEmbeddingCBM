@@ -358,7 +358,7 @@ def objective(
     w_task = trial.suggest_float("w_task", 0.5, 2.0)
     w_act  = trial.suggest_float("w_act", 1.0, 3.0)
     w_hier = trial.suggest_float("w_hier", 1.0, 2.0)
-    w_vol  = trial.suggest_float("w_vol", 0.0, 0.1)
+    #w_vol  = trial.suggest_float("w_vol", 0.0, 0.1)
     
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
     weight_decay = 1e-5
@@ -390,7 +390,7 @@ def objective(
         W_TASK=w_task, 
         W_ACT=w_act, 
         W_HIER=w_hier, 
-        W_VOL=w_vol,
+        #W_VOL=w_vol,
         trial=trial,          
         save_dir=f"{save_dir}{trial.number}"
     )
