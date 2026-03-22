@@ -252,7 +252,7 @@ def train_and_validate_optuna(
                 hier_loss += F.binary_cross_entropy(pred_prob, tgt_tensor)
                 
             vol_loss = 0.0
-            for i in range(1, model.k): 
+            for i in range(model.k): 
                 vol_loss += model.box_regularizer(outputs["boxes"][i])
                 
             loss = (W_TASK * task_loss) + (W_ACT * act_loss) + (W_HIER * hier_loss) + (W_VOL * vol_loss)
@@ -296,7 +296,7 @@ def train_and_validate_optuna(
                     hier_loss += F.binary_cross_entropy(pred_prob, tgt_tensor)
                     
                 vol_loss = 0.0
-                for i in range(1, model.k): 
+                for i in range(model.k): 
                     vol_loss += model.box_regularizer(outputs["boxes"][i])
                     
                 loss = (W_TASK * task_loss) + (W_ACT * act_loss) + (W_HIER * hier_loss) + (W_VOL * vol_loss)
