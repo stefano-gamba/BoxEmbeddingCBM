@@ -245,10 +245,13 @@ def train_and_validate_optuna(
             act_loss = F.binary_cross_entropy(outputs["concept_probs"], concept_labels)
             
             hier_loss = 0.0
-            for tgt, src, prob in hierarchy_gt:
-                pred_prob = outputs["cond_prob_matrix"][:, tgt, src]
-                tgt_tensor = torch.full((features.size(0),), prob, dtype=torch.float32, device=device)
-                hier_loss += F.binary_cross_entropy(pred_prob, tgt_tensor)
+            num_rules = len(hierarchy_gt)
+            if num_rules > 0:
+                for tgt, src, prob in hierarchy_gt:
+                    pred_prob = outputs["cond_prob_matrix"][:, tgt, src]
+                    tgt_tensor = torch.full((features.size(0),), prob, dtype=torch.float32, device=device)
+                    hier_loss += F.binary_cross_entropy(pred_prob, tgt_tensor)
+                hier_loss = hier_loss / num_rules
                 
             vol_loss = 0.0
             for i in range(model.k): 
@@ -289,10 +292,13 @@ def train_and_validate_optuna(
                 act_loss = F.binary_cross_entropy(outputs["concept_probs"], concept_labels)
                 
                 hier_loss = 0.0
-                for tgt, src, prob in hierarchy_gt:
-                    pred_prob = outputs["cond_prob_matrix"][:, tgt, src]
-                    tgt_tensor = torch.full((features.size(0),), prob, dtype=torch.float32, device=device)
-                    hier_loss += F.binary_cross_entropy(pred_prob, tgt_tensor)
+                num_rules = len(hierarchy_gt)
+                if num_rules > 0:
+                    for tgt, src, prob in hierarchy_gt:
+                        pred_prob = outputs["cond_prob_matrix"][:, tgt, src]
+                        tgt_tensor = torch.full((features.size(0),), prob, dtype=torch.float32, device=device)
+                        hier_loss += F.binary_cross_entropy(pred_prob, tgt_tensor)
+                    hier_loss = hier_loss / num_rules
                     
                 vol_loss = 0.0
                 for i in range(model.k): 
