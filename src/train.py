@@ -352,7 +352,7 @@ def objective(
     w_task = trial.suggest_float("w_task", 0.5, 2.0)
     w_act  = trial.suggest_float("w_act", 1.0, 3.0)
     w_hier = trial.suggest_float("w_hier", 1.0, 2.0)
-    w_vol  = trial.suggest_float("w_vol", 1e-4, 1e-1, log=True)
+    #w_vol  = trial.suggest_float("w_vol", 1e-4, 1e-1, log=True)
     int_temp = trial.suggest_float("int_temp", 1e-4, 1.0, log=True)
     vol_temp = trial.suggest_float("vol_temp", 1e-2, 10.0, log=True)
     
@@ -394,7 +394,7 @@ def objective(
         W_TASK=w_task, 
         W_ACT=w_act, 
         W_HIER=w_hier, 
-        W_VOL=w_vol,          
+        #W_VOL=w_vol,          
         save_dir=f"{save_dir}{trial.number}"
     )
     
