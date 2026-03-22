@@ -319,10 +319,14 @@ def train_and_validate_optuna(
         
         history['train']['tot_loss'].append(train_loss / t_batches)
         history['train']['task_loss'].append(train_task / t_batches)
+        history['train']['act_loss'].append(train_act / t_batches) 
+        history['train']['hier_loss'].append(train_hier / t_batches)
         history['train']['acc'].append(train_correct / train_samples)
         
         history['val']['tot_loss'].append(val_loss / v_batches)
         history['val']['task_loss'].append(val_task / v_batches)
+        history['val']['act_loss'].append(val_act / v_batches)
+        history['val']['hier_loss'].append(val_hier / v_batches)
         history['val']['acc'].append(val_correct / val_samples)
 
         print(f"Epoca {epoch+1:3d}/{EPOCHS} | "
