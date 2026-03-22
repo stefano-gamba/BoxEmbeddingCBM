@@ -222,7 +222,7 @@ def train_and_validate_optuna(
         'val':   {'tot_loss': [], 'task_loss': [], 'act_loss': [], 'hier_loss': [], 'acc': []}
     }
     
-    best_val_acc = 0.0 # Per salvare il modello migliore in assoluto
+    best_val_task_loss = float('inf')
     
     for epoch in range(EPOCHS):
         # ==========================================
@@ -330,19 +330,19 @@ def train_and_validate_optuna(
               f"TRAIN: Loss={history['train']['tot_loss'][-1]:.3f}, Acc={history['train']['acc'][-1]*100:.1f}% | "
               f"VAL: Loss={history['val']['tot_loss'][-1]:.3f}, Acc={history['val']['acc'][-1]*100:.1f}%")
         
-        current_val_acc = history['val']['acc'][-1]
+        current_val_task_loss = val_task / v_batches
         
         # PRUNING
         if trial is not None:
             # Comunichiamo a Optuna l'accuratezza corrente a questa epoca
-            trial.report(current_val_acc, epoch)
+            trial.report(current_val_task_loss, epoch)
             # Se Optuna capisce che questa run sta andando troppo male rispetto alle altre, la taglia
             if trial.should_prune():
                 print(f"Trial potato (pruned) all'epoca {epoch+1}!")
                 raise optuna.exceptions.TrialPruned()
 
-    if current_val_acc > best_val_acc:
-        best_val_acc = current_val_acc
+    if current_val_task_loss < best_val_task_loss:
+        best_val_task_loss = current_val_task_loss
         best_path = os.path.join(save_dir, "model_best.pt")
         torch.save(model.state_dict(), best_path)
 
@@ -387,7 +387,7 @@ def objective(
         int_temp, 
         vol_temp
     ).to(device) 
-    
+
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
     EPOCHS_TUNING = 10
@@ -409,6 +409,8 @@ def objective(
         save_dir=f"{save_dir}{trial.number}"
     )
     
-    # 4. Optuna deve sapere qual è il valore finale da massimizzare
-    best_acc = max(history['val']['acc'])
-    return best_acc
+    best_val_task_loss = min(history['val']['task_loss'])
+    best_val_xai_loss = min(
+        [a + h for a, h in zip(history['val']['act_loss'], history['val']['hier_loss'])]
+    )
+    return best_val_task_loss, best_val_xai_loss
