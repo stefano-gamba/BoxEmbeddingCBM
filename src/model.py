@@ -3,6 +3,7 @@ import torch.nn as nn
 from box_embeddings.parameterizations import MinDeltaBoxTensor
 from box_embeddings.modules.intersection import GumbelIntersection
 from box_embeddings.modules.volume import SoftVolume
+from box_embeddings.modules.regularization import L2SideBoxRegularizer
 
 class BoxEmbeddingCBM(nn.Module):
     """
@@ -40,6 +41,7 @@ class BoxEmbeddingCBM(nn.Module):
         # --- 2. MODULI GEOMETRICI ---
         self.intersection_op = GumbelIntersection(intersection_temperature=int_temp)
         self.volume_op = SoftVolume(volume_temperature=vol_temp)
+        self.box_regularizer = L2SideBoxRegularizer(log_scale=True)
         
         # --- 3. CLASSIFICATORI TASK FINALE ---
         # Prende i box scalati (gating): k concetti * 2 coordinate * num_dims

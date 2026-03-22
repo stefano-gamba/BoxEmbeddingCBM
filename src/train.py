@@ -195,7 +195,7 @@ def plot_train_val_history(history):
 
 
 def train_and_validate_optuna(
-        model, 
+        model: BoxEmbeddingCBM, 
         train_dataloader, 
         val_dataloader, 
         optimizer, 
@@ -253,7 +253,7 @@ def train_and_validate_optuna(
                 
             vol_loss = 0.0
             for i in range(1, model.k): 
-                vol_loss -= model.volume_op(outputs["boxes"][i]).mean()
+                vol_loss += model.box_regularizer(outputs["boxes"][i])
                 
             loss = (W_TASK * task_loss) + (W_ACT * act_loss) + (W_HIER * hier_loss) + (W_VOL * vol_loss)
             
@@ -297,7 +297,7 @@ def train_and_validate_optuna(
                     
                 vol_loss = 0.0
                 for i in range(1, model.k): 
-                    vol_loss -= model.volume_op(outputs["boxes"][i]).mean()
+                    vol_loss += model.box_regularizer(outputs["boxes"][i])
                     
                 loss = (W_TASK * task_loss) + (W_ACT * act_loss) + (W_HIER * hier_loss) + (W_VOL * vol_loss)
                 
@@ -325,17 +325,21 @@ def train_and_validate_optuna(
         history['val']['tot_loss'].append(val_loss / v_batches)
         history['val']['task_loss'].append(val_task / v_batches)
         history['val']['acc'].append(val_correct / val_samples)
+
+        print(f"Epoca {epoch+1:3d}/{EPOCHS} | "
+              f"TRAIN: Loss={history['train']['tot_loss'][-1]:.3f}, Acc={history['train']['acc'][-1]*100:.1f}% | "
+              f"VAL: Loss={history['val']['tot_loss'][-1]:.3f}, Acc={history['val']['acc'][-1]*100:.1f}%")
         
-    current_val_acc = history['val']['acc'][-1]
+        current_val_acc = history['val']['acc'][-1]
         
-    # PRUNING
-    if trial is not None:
-        # Comunichiamo a Optuna l'accuratezza corrente a questa epoca
-        trial.report(current_val_acc, epoch)
-        # Se Optuna capisce che questa run sta andando troppo male rispetto alle altre, la taglia
-        if trial.should_prune():
-            print(f"Trial potato (pruned) all'epoca {epoch+1}!")
-            raise optuna.exceptions.TrialPruned()
+        # PRUNING
+        if trial is not None:
+            # Comunichiamo a Optuna l'accuratezza corrente a questa epoca
+            trial.report(current_val_acc, epoch)
+            # Se Optuna capisce che questa run sta andando troppo male rispetto alle altre, la taglia
+            if trial.should_prune():
+                print(f"Trial potato (pruned) all'epoca {epoch+1}!")
+                raise optuna.exceptions.TrialPruned()
 
     if current_val_acc > best_val_acc:
         best_val_acc = current_val_acc
@@ -358,7 +362,9 @@ def objective(
     w_task = trial.suggest_float("w_task", 0.5, 2.0)
     w_act  = trial.suggest_float("w_act", 1.0, 3.0)
     w_hier = trial.suggest_float("w_hier", 1.0, 2.0)
-    #w_vol  = trial.suggest_float("w_vol", 0.0, 0.1)
+    w_vol  = trial.suggest_float("w_vol", 1e-4, 1e-1, log=True)
+    int_temp = trial.suggest_float("int_temp", 1e-4, 1.0, log=True)
+    vol_temp = trial.suggest_float("vol_temp", 1e-2, 10.0, log=True)
     
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
     weight_decay = 1e-5
@@ -373,7 +379,15 @@ def objective(
     NUM_CLASSES = 50
     print(f"Numero di classi: {NUM_CLASSES}")
 
-    model = BoxEmbeddingCBM(LATENT_DIM, NUM_CONCEPTS, box_dim, NUM_CLASSES).to(device) 
+    model = BoxEmbeddingCBM(
+        LATENT_DIM, 
+        NUM_CONCEPTS, 
+        box_dim, 
+        NUM_CLASSES, 
+        int_temp, 
+        vol_temp
+    ).to(device) 
+    
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
     EPOCHS_TUNING = 10
@@ -390,7 +404,7 @@ def objective(
         W_TASK=w_task, 
         W_ACT=w_act, 
         W_HIER=w_hier, 
-        #W_VOL=w_vol,
+        W_VOL=w_vol,
         trial=trial,          
         save_dir=f"{save_dir}{trial.number}"
     )
