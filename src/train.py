@@ -370,7 +370,8 @@ def objective(
     weight_decay = 1e-5
 
     images, labels = next(iter(train_loader))
-    box_dim = trial.suggest_int("box_dim", 4, 16)
+    #box_dim = trial.suggest_int("box_dim", 4, 16)
+    box_dim = 16
     BATCH_SIZE = 256
     LATENT_DIM = images.shape[1]
     print(f"Dimensione features: {LATENT_DIM}")
