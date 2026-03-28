@@ -156,17 +156,24 @@ class BoxEmbeddingCBM(nn.Module):
         
         prob = torch.exp(vol_int - vol_source)
         cond_prob_matrix = torch.clamp(prob, 1e-6, 1.0 - 1e-6)
-        # =========================================================
         
-        # --- FASE 3: Gating Geometrico ---
-        scaled_coords_list = []
-        for i in range(self.k):
-            p = concept_probs[:, i].unsqueeze(-1)
-            z_scaled = boxes[i].z * p
-            Z_scaled = boxes[i].Z * p
-            scaled_coords_list.append(torch.cat([z_scaled, Z_scaled], dim=-1))
-            
-        flat_scaled_boxes = torch.cat(scaled_coords_list, dim=-1)
+
+        # --- FASE 3 VETTORIZZATA (Veloce) ---
+
+        # 1. Creiamo un singolo "contenitore" per tutti i k box del batch
+        all_boxes = MinDeltaBoxTensor(theta_all) # theta_all lo avevamo già nella Fase 2!
+
+        # 2. Adattiamo la forma delle probabilità per il broadcasting
+        # concept_probs è [batch_size, k]. Lo facciamo diventare [batch_size, k, 1]
+        p_expanded = concept_probs.unsqueeze(-1) 
+
+        # 3. Moltiplichiamo tutte le coordinate z e Z in un colpo solo!
+        z_scaled_all = all_boxes.z * p_expanded
+        Z_scaled_all = all_boxes.Z * p_expanded
+
+        # 4. Uniamo z e Z, e appiattiamo tutto per il classificatore finale
+        scaled_boxes = torch.cat([z_scaled_all, Z_scaled_all], dim=-1) # Shape: [batch, k, 2 * num_dims]
+        flat_scaled_boxes = scaled_boxes.view(batch_size, -1)          # Appiattiamo a [batch, k * 2 * num_dims]
         
         # --- FASE 4: Classificazione Task Finale ---
         flat_relation_matrix = cond_prob_matrix.view(batch_size, self.k * self.k)
