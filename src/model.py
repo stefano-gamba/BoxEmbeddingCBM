@@ -175,8 +175,10 @@ class BoxEmbeddingCBM(nn.Module):
         scaled_boxes = torch.cat([z_scaled_all, Z_scaled_all], dim=-1) # Shape: [batch, k, 2 * num_dims]
         flat_scaled_boxes = scaled_boxes.view(batch_size, -1)          # Appiattiamo a [batch, k * 2 * num_dims]
         
+        gated_cond_prob_matrix = cond_prob_matrix * concept_probs.unsqueeze(1)
+
         # --- FASE 4: Classificazione Task Finale ---
-        flat_relation_matrix = cond_prob_matrix.view(batch_size, self.k * self.k)
+        flat_relation_matrix = gated_cond_prob_matrix.view(batch_size, self.k * self.k)
         
         task_logit_boxes = self.clf_boxes(flat_scaled_boxes)
         task_logit_rels = self.clf_relations(flat_relation_matrix)

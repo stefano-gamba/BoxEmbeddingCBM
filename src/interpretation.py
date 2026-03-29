@@ -46,7 +46,7 @@ def explain_prediction(model, image_index, features, k, concept_names=None, targ
                 int_box = model.intersection_op(boxes[i], boxes[j])
                 prob = torch.exp(model.volume_op(int_box) - model.volume_op(boxes[j]))
                 cond_prob_matrix[i, j] = torch.clamp(prob, 1e-6, 1.0 - 1e-6)[0]
-                
+        
         # 3. Box Scalati
         scaled_coords_list = []
         for i in range(k):
@@ -54,9 +54,11 @@ def explain_prediction(model, image_index, features, k, concept_names=None, targ
             z_scaled = boxes[i].z[0] * p
             Z_scaled = boxes[i].Z[0] * p
             scaled_coords_list.append(torch.cat([z_scaled, Z_scaled], dim=-1))
+
+        gated_cond_prob_matrix = cond_prob_matrix * concept_probs.unsqueeze(1)
             
         flat_scaled_boxes = torch.cat(scaled_coords_list, dim=-1).unsqueeze(0)
-        flat_relation_matrix = cond_prob_matrix.view(1, k * k)
+        flat_relation_matrix = gated_cond_prob_matrix.view(1, k * k)
         
         # 4. Predizione Finale Multiclasse
         logit_boxes = model.clf_boxes(flat_scaled_boxes)
@@ -103,7 +105,7 @@ def explain_prediction(model, image_index, features, k, concept_names=None, targ
                 
                 idx = i * k + j
                 weight = rel_weights[idx].item()
-                prob = cond_prob_matrix[i, j].item()
+                prob = gated_cond_prob_matrix[i, j].item()
                 
                 contrib = prob * weight
                 if abs(contrib) > 0.01: 
