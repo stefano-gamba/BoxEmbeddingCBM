@@ -221,7 +221,7 @@ def train_and_validate_optuna(
         'val':   {'tot_loss': [], 'task_loss': [], 'act_loss': [], 'hier_loss': [], 'acc': []}
     }
     
-    best_val_task_loss = float('inf')
+    best_combined_loss = float('inf')
     
     for epoch in range(EPOCHS):
         # ==========================================
@@ -340,11 +340,16 @@ def train_and_validate_optuna(
               f"VAL: Loss={history['val']['tot_loss'][-1]:.3f}, Acc={history['val']['acc'][-1]*100:.1f}%")
         
         current_val_task_loss = val_task / v_batches
+        current_val_hier_loss = val_hier / v_batches
+        current_val_act_loss  = val_act / v_batches
 
-        if current_val_task_loss < best_val_task_loss:
-            best_val_task_loss = current_val_task_loss
+        current_combined_loss = current_val_task_loss + current_val_hier_loss + current_val_act_loss
+
+        if current_combined_loss < best_combined_loss:
+            best_combined_loss = current_combined_loss
             best_path = os.path.join(save_dir, "model_best.pt")
             torch.save(model.state_dict(), best_path)
+            print(f"Nuovo modello salvato all'epoca {epoch+1} (Hier Loss: {current_val_hier_loss:.4f})")
 
     return history
 
