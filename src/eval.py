@@ -21,7 +21,6 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device, W_TASK=2
     test_task_loss = 0.0
     test_act_loss = 0.0
     test_hier_loss = 0.0
-    test_vol_loss = 0.0
     
     correct_preds = 0
     total_samples = 0
@@ -57,7 +56,7 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device, W_TASK=2
                 hier_loss += F.binary_cross_entropy(pred_prob, target_tensor)
             
             hier_loss = hier_loss / num_rules
-            
+
             vol_loss = 0.0
                 
             loss = (W_TASK * task_loss) + (W_ACT * act_loss) + (W_HIER * hier_loss) + (W_VOL * vol_loss)
@@ -67,7 +66,6 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device, W_TASK=2
             test_task_loss += task_loss.item()
             test_act_loss += act_loss.item()
             test_hier_loss += hier_loss.item()
-            test_vol_loss += vol_loss.item()
             
             # --- Calcolo Accuratezza ---
             preds = torch.argmax(outputs["task_logits"], dim=1)
@@ -84,7 +82,6 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device, W_TASK=2
     avg_task = test_task_loss / num_batches
     avg_act = test_act_loss / num_batches
     avg_hier = test_hier_loss / num_batches
-    avg_vol = test_vol_loss / num_batches
     accuracy = correct_preds / total_samples
     
     print(f"Test Completato! | Accuracy Finale: {accuracy*100:.2f}% | Loss Totale: {avg_loss:.4f}\n")
