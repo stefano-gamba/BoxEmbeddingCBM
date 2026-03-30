@@ -5,9 +5,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import seaborn as sns
+from adjustText import adjust_text
 
 
-def explain_prediction(model, image_index, features, k, concept_names=None, target_class=None, show_plot=True):
+def explain_prediction(model: BoxEmbeddingCBM, image_index, features, k, concept_names=None, target_class=None, show_plot=True):
     """
     Spiega la decisione del modello per una singola immagine.
     Usa Sigmoid per i concetti e Softmax per le classi finali.
@@ -155,7 +156,8 @@ def explain_prediction(model, image_index, features, k, concept_names=None, targ
 def visualize_ontology_box(model, dataloader, device, concept_names=None):
     """
     Estrae la gerarchia globale calcolando la media dei box generati
-    sull'intero dataloader e plottando sia la matrice che i rettangoli 2D.
+    sull'intero dataloader e plottando sia la matrice che i rettangoli 2D,
+    evitando la sovrapposizione dei nomi dei concetti.
     """
     print("Estrazione delle geometrie latenti in corso...")
     model.eval()
@@ -169,69 +171,70 @@ def visualize_ontology_box(model, dataloader, device, concept_names=None):
             features = features.to(device)
             outputs = model(features)
 
-            # Salviamo la matrice di probabilità condizionata [batch, K, K]
             all_cond_probs.append(outputs["cond_prob_matrix"].cpu())
 
-            # Estraiamo i limiti z e Z per tutti i K box del batch
-            # Shape di batch_z: [batch_size, num_concepts, num_dims]
             batch_z = torch.stack([box.z for box in outputs["boxes"]], dim=1)
             batch_Z = torch.stack([box.Z for box in outputs["boxes"]], dim=1)
 
             all_z.append(batch_z.cpu())
             all_Z.append(batch_Z.cpu())
 
-    # --- 1. Calcoliamo i "Box Medi" (Gli Archetipi dei Concetti) ---
-    mean_cond_prob = torch.cat(all_cond_probs, dim=0).mean(dim=0).numpy() # Shape [K, K]
-    global_z = torch.cat(all_z, dim=0).mean(dim=0).numpy()                # Shape [K, 16]
-    global_Z = torch.cat(all_Z, dim=0).mean(dim=0).numpy()                # Shape [K, 16]
+    mean_cond_prob = torch.cat(all_cond_probs, dim=0).mean(dim=0).numpy()
+    global_z = torch.cat(all_z, dim=0).mean(dim=0).numpy()
+    global_Z = torch.cat(all_Z, dim=0).mean(dim=0).numpy()
 
-    # Se non passiamo i nomi, usiamo C0, C1, ecc.
     if concept_names is None:
         concept_names = [f"C{i}" for i in range(model.k)]
 
-    # ==========================================
-    # --- FASE DI PLOTTING ---
-    # ==========================================
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
 
-    # --- PLOT 1: Matrice di Inclusione (Analitica) ---
-    # Questa matrice deve assomigliare alla tua Ground Truth di networkx!
     sns.heatmap(mean_cond_prob, cmap='viridis', ax=ax1,
                 xticklabels=concept_names, yticklabels=concept_names)
     ax1.set_title("Matrice di Inclusione P(Target | Source)", fontsize=14)
     ax1.set_xlabel("Concetto Source (Contenuto)")
     ax1.set_ylabel("Concetto Target (Contenitore)")
 
-    # --- PLOT 2: Sezione 2D dei Box (Spaziale) ---
-    # Trovare le 2 dimensioni con più varianza per un bel grafico
     centri = (global_z + global_Z) / 2
     varianze = np.var(centri, axis=0)
-    dim_x, dim_y = np.argsort(varianze)[-2:] # Prende gli indici delle 2 dim maggiori
+    dim_x, dim_y = np.argsort(varianze)[-2:]
 
     ax2.set_title(f"Spazio Latente: Sezione 2D (Dimensioni {dim_x} e {dim_y})", fontsize=14)
 
-    cmap = plt.get_cmap('tab20') # Colori per i box
+    cmap = plt.get_cmap('tab20')
+    
+    # Lista per raccogliere tutti gli oggetti testo
+    texts = []
 
     for i in range(model.k):
-        # Calcoliamo larghezza, altezza e punto in basso a sinistra nel piano 2D scelto
         width = global_Z[i, dim_x] - global_z[i, dim_x]
         height = global_Z[i, dim_y] - global_z[i, dim_y]
         x_min = global_z[i, dim_x]
         y_min = global_z[i, dim_y]
 
-        # Disegniamo il rettangolo
         rect = patches.Rectangle((x_min, y_min), width, height,
                                  linewidth=2, edgecolor=cmap(i % 20),
                                  facecolor=cmap(i % 20), alpha=0.3)
         ax2.add_patch(rect)
 
-        # Aggiungiamo il nome del concetto al centro del box
-        ax2.text(x_min + width/2, y_min + height/2, concept_names[i],
-                 ha='center', va='center', fontsize=9, fontweight='bold', color='#333333')
+        # Calcoliamo il centro come punto di ancoraggio originale
+        center_x = x_min + width / 2
+        center_y = y_min + height / 2
 
-    # Adattiamo gli assi per far rientrare tutti i box
+        # Creiamo il testo e lo aggiungiamo alla lista invece di posizionarlo in modo fisso
+        t = ax2.text(center_x, center_y, concept_names[i],
+                     fontsize=9, fontweight='bold', color='#333333')
+        texts.append(t)
+
+    # Adattiamo gli assi per far rientrare tutti i box PRIMA di aggiustare il testo
     ax2.autoscale_view()
     ax2.grid(True, linestyle='--', alpha=0.5)
+
+    # --- MAGIA DI adjustText ---
+    # Sposta i testi in modo intelligente. Se li sposta molto, disegna una linea grigia sottile
+    # che collega il testo al suo punto di origine (il centro del box).
+    adjust_text(texts, ax=ax2, 
+                arrowprops=dict(arrowstyle="-", color='gray', lw=0.5, alpha=0.8),
+                expand_points=(1.2, 1.2), expand_text=(1.2, 1.2))
 
     plt.tight_layout()
     plt.show()
