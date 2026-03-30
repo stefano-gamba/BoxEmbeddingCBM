@@ -5,7 +5,7 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix
 import numpy as np
 
-def test(model, dataloader, class_concept_matrix, hierarchy_gt, device):
+def test(model, dataloader, class_concept_matrix, hierarchy_gt, device, W_TASK=2.0, W_ACT=1.0, W_HIER=1.0, W_VOL=0.0):
     """
     Valuta il BoxEmbeddingCBM sul set di Test e plotta i risultati.
     Non richiede l'optimizer perché non aggiorniamo i pesi!
@@ -15,9 +15,6 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device):
     
     model = model.to(device)
     class_concept_matrix = class_concept_matrix.to(device)
-    
-    # Pesi della loss (devono essere uguali a quelli del training)
-    W_TASK, W_ACT, W_HIER, W_VOL = 2.0, 1.0, 1.0, 0.0
     
     # Inizializziamo i contatori
     test_loss = 0.0
@@ -52,15 +49,16 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device):
             act_loss = F.binary_cross_entropy(outputs["concept_probs"], concept_labels)
             
             hier_loss = 0.0
+            num_rules = len(hierarchy_gt)
             batch_size = features.size(0)
             for target_id, source_id, target_prob in hierarchy_gt:
                 pred_prob = outputs["cond_prob_matrix"][:, target_id, source_id]
                 target_tensor = torch.full((batch_size,), target_prob, dtype=torch.float32, device=device)
                 hier_loss += F.binary_cross_entropy(pred_prob, target_tensor)
-                
+            
+            hier_loss = hier_loss / num_rules
+            
             vol_loss = 0.0
-            for i in range(1, model.k): 
-                vol_loss -= model.volume_op(outputs["boxes"][i]).mean()
                 
             loss = (W_TASK * task_loss) + (W_ACT * act_loss) + (W_HIER * hier_loss) + (W_VOL * vol_loss)
             
@@ -97,9 +95,9 @@ def test(model, dataloader, class_concept_matrix, hierarchy_gt, device):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
     
     # 1. Grafico a Barre: Scomposizione della Loss
-    loss_names = ['Task Loss', 'Act Loss', 'Hier Loss', 'Vol Loss']
-    loss_values = [avg_task, avg_act, avg_hier, avg_vol]
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    loss_names = ['Task Loss', 'Act Loss', 'Hier Loss']
+    loss_values = [avg_task, avg_act, avg_hier]
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
     
     bars = ax1.bar(loss_names, loss_values, color=colors, alpha=0.8)
     ax1.set_title('Scomposizione della Test Loss', fontsize=14)
