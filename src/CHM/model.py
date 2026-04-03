@@ -43,3 +43,31 @@ class BoxHierarchyModel(nn.Module):
         p = torch.clamp(p, min=1e-7, max=1.0 - 1e-7)
         
         return p
+    
+
+def get_box_dict(model, id2concept):
+    """
+    Estrae tutti i box appresi dal modello e crea una mappatura diretta.
+    Restituisce un dizionario nel formato {concetto (str): box (MinDeltaBoxTensor)}.
+    """
+    # Mettiamo il modello in eval mode per sicurezza
+    model.eval()
+    
+    dizionario_box = {}
+    
+    # Disabilitiamo il calcolo dei gradienti dato che stiamo solo estraendo dati
+    with torch.no_grad():
+        for idx, concept_name in id2concept.items():
+            # 1. Creiamo un tensore contenente l'ID del concetto
+            tensor_id = torch.tensor([idx], dtype=torch.long)
+            
+            # 2. Estraiamo il parametro base theta (le word embeddings raw)
+            theta = model.embeddings(tensor_id).view(-1, 2, model.dim)
+            
+            # 3. Lo incapsuliamo nel MinDeltaBoxTensor
+            box = MinDeltaBoxTensor(theta)
+            
+            # 4. Salviamo nel dizionario
+            dizionario_box[concept_name] = box
+            
+    return dizionario_box

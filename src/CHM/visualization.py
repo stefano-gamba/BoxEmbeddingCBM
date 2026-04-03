@@ -20,8 +20,8 @@ def visualize_concept_hierarchy(model, id2concept, concept2id, concept_i, concep
     
     with torch.no_grad():
         # Otteniamo i box passando per i layer
-        theta_i = model.embeddings(torch.tensor([idx_i])).view(-1, 2, 32)
-        theta_j = model.embeddings(torch.tensor([idx_j])).view(-1, 2, 32)
+        theta_i = model.embeddings(torch.tensor([idx_i])).view(-1, 2, model.dim)
+        theta_j = model.embeddings(torch.tensor([idx_j])).view(-1, 2, model.dim)
         
         box_parent = MinDeltaBoxTensor(theta_i)
         box_child = MinDeltaBoxTensor(theta_j)
@@ -166,7 +166,7 @@ def visualize_all_boxes_2d(model, id2concept, dim_x=0, dim_y=1, figsize=(16, 12)
     with torch.no_grad():
         # Otteniamo i parametri di *tutti* i concetti contemporaneamente
         all_ids = torch.arange(num_concepts, dtype=torch.long)
-        thetas = model.embeddings(all_ids).view(-1, 2, 32)
+        thetas = model.embeddings(all_ids).view(-1, 2, model.dim)
         
         # Convertiamo in Box
         all_boxes = MinDeltaBoxTensor(thetas)
@@ -242,8 +242,3 @@ def visualize_all_boxes_2d(model, id2concept, dim_x=0, dim_y=1, figsize=(16, 12)
     ax.grid(True, linestyle='--', alpha=0.5)
     plt.tight_layout()
     plt.show()
-
-# Esempio di utilizzo:
-# Puoi cambiare dim_x e dim_y (da 0 a 31) per esplorare la "forma" da diverse angolazioni
-# visualizza_tutti_i_box_2d(model, id2concept, dim_x=0, dim_y=1)
-# visualizza_tutti_i_box_2d(model, id2concept, dim_x=2, dim_y=3)
