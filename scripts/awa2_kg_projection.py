@@ -13,7 +13,7 @@ import os, sys
 # assicurati che la cartella del progetto sia nella ricerca dei moduli
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__),'..')))
 
-from src.dataset import classical_split_awa2_features
+from src.CBEM.dataset import classical_split_awa2_features
 
 NOISY_CONCEPTS = {
     # 1. Sensi, fisicità astratta e cinematica (Non deducibili in modo affidabile da una foto statica)

@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from src.model import BoxEmbeddingCBM
+from src.CBEM.model import BoxEmbeddingCBM
 import os
 import matplotlib.pyplot as plt
 

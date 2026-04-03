@@ -1,6 +1,6 @@
 import torch
 from box_embeddings.parameterizations import MinDeltaBoxTensor
-from src.model import BoxEmbeddingCBM
+from src.CBEM.model import BoxEmbeddingCBM
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
