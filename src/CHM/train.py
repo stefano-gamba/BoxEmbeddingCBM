@@ -98,12 +98,12 @@ def train_cbm_classifier(
             optimizer.zero_grad()
             
             # Formattiamo target e concetti (Ground Truth)
-            c_true = torch.tensor(concept_labels, dtype=torch.float32).unsqueeze(0) # shape: (1, num_concepts)
+            c_true = concept_labels.unsqueeze(-1) # shape: (batch_size, num_concepts, 1)
             
             # 3. CORE DEL CBM-IBRIDO: Scaliamo i box embedding con la ground truth
             # Effettuiamo un broadcasting: moltiplichiamo c_true (1 o 0) per i box
             # shape finale: (1, num_concepts, box_dim)
-            scaled_boxes = c_true.unsqueeze(-1) * boxes_tensor.unsqueeze(0)
+            scaled_boxes = c_true * boxes_tensor.unsqueeze(0)
             
             # 4. Forward pass
             logits = model(scaled_boxes)
@@ -113,7 +113,7 @@ def train_cbm_classifier(
             loss.backward()
             optimizer.step()
             
-            total_loss += loss.item()
+            train_loss += loss.item()
             
             # Calcolo accuratezza
             preds = torch.argmax(logits, dim=1)
@@ -130,8 +130,8 @@ def train_cbm_classifier(
                 labels = labels.to(device).long().view(-1) - 1
                 concept_labels = class_concept_matrix[labels].float()
                 
-                c_true = torch.tensor(concept_labels, dtype=torch.float32).unsqueeze(0)
-                scaled_boxes = c_true.unsqueeze(-1) * boxes_tensor.unsqueeze(0)
+                c_true = concept_labels.unsqueeze(-1)
+                scaled_boxes = c_true * boxes_tensor.unsqueeze(0)
                 
                 logits = model(scaled_boxes)
                 loss = criterion(logits, labels)
