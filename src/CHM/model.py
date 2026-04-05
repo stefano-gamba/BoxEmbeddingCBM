@@ -4,6 +4,10 @@ from box_embeddings.parameterizations import MinDeltaBoxTensor
 from box_embeddings.modules.intersection import HardIntersection
 from box_embeddings.modules.volume import SoftVolume
 
+# ========================================================
+# TRAINING A PRIORI BOX EMBEDDING DA USARE COME CB NEL CBM
+# ========================================================
+
 class BoxHierarchyModel(nn.Module):
     def __init__(self, num_concepts, dim=32):
         super().__init__()
@@ -44,6 +48,35 @@ class BoxHierarchyModel(nn.Module):
         
         return p
     
+# ==========================================
+# DEFINIZIONE DEL CLASSIFICATORE (c -> y)
+# ==========================================
+class ConceptBottleneckClassifier(nn.Module):
+    def __init__(self, num_concepts, box_dim, num_classes):
+        super().__init__()
+        # Seguendo il paper dei CBM per task di classificazione,
+        # utilizziamo un singolo strato lineare (logistic regression).
+        # La dimensione di input è data dal numero di concetti moltiplicato per 
+        # i parametri di ciascun box (2 * dim).
+        input_size = num_concepts * box_dim
+        self.classifier = nn.Linear(input_size, num_classes)
+
+    def forward(self, scaled_boxes):
+        """
+        Input:
+            scaled_boxes: Tensore di shape (batch_size, num_concepts, box_dim)
+                          rappresenta i box embedding attivati/disattivati.
+        Output:
+            logits: Shape (batch_size, num_classes)
+        """
+        # Appiattiamo l'input per il layer lineare: 
+        # da (batch, num_concepts, box_dim) a (batch, num_concepts * box_dim)
+        flattened_features = scaled_boxes.view(scaled_boxes.size(0), -1)
+        
+        # Calcoliamo i logit della classe
+        logits = self.classifier(flattened_features)
+        return logits
+    
 
 def get_box_dict(model, id2concept):
     """
@@ -71,3 +104,33 @@ def get_box_dict(model, id2concept):
             dizionario_box[concept_name] = box
             
     return dizionario_box
+
+
+# ==========================================
+# PREPARAZIONE DEI DATI E DEI BOX
+# ==========================================
+def prepara_tensore_box(dict_boxes, concept2id):
+    """
+    Estrae i parametri (theta) dal dizionario dei box e crea un singolo
+    tensore fisso. Non calcoleremo i gradienti per questi box.
+    """
+    num_concepts = len(concept2id)
+    # Assumiamo che il dizionario contenga oggetti MinDeltaBoxTensor
+    # il cui attributo "data" (o la property corrispondente) sia theta (dimensione 2*D)
+    
+    # Prendiamo un box a caso per capirne la dimensione
+    sample_box = next(iter(dict_boxes.values()))
+    # In box_embeddings, the parameters are usually accessible. 
+    # Assumendo che il tensore theta originale fosse salvato o recuperabile:
+    # (qui simulo estraendo z e Z concatenati, che equivalgono a 2*D parametri)
+    box_dim = sample_box.z.size(-1) * 2
+    
+    boxes_tensor = torch.zeros((num_concepts, box_dim))
+    
+    for concept_name, idx in concept2id.items():
+        box = dict_boxes[concept_name]
+        # Concateniamo min (z) e max (Z) per avere i parametri geometrici completi
+        theta = torch.cat([box.z.squeeze(), box.Z.squeeze()], dim=-1)
+        boxes_tensor[idx] = theta
+        
+    return boxes_tensor.detach() # .detach() assicura che i box siano congelati
