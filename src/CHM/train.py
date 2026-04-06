@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 from src.CHM.model import BoxHierarchyModel
+from src.CHM.model import calcola_matrice_probabilita
 
 def train_box(
         model: BoxHierarchyModel,
@@ -65,6 +66,7 @@ def train_cbm_classifier(
         boxes_tensor,
         EPOCHS=100,
         device="cpu",
+        info="boxes",
     ):
     """
     dataset_classificazione: Lista di tuple (classe_target, vettore_concetti_binario)
@@ -74,6 +76,10 @@ def train_cbm_classifier(
     model.to(device)
     class_concept_matrix = class_concept_matrix.to(device)
     boxes_tensor = boxes_tensor.to(device)
+
+    if info == "rel_matrix":
+        with torch.no_grad():
+            prob_matrix = calcola_matrice_probabilita(boxes_tensor)
     
     
     history = {
@@ -103,11 +109,14 @@ def train_cbm_classifier(
             # 3. CORE DEL CBM-IBRIDO: Scaliamo i box embedding con la ground truth
             # Effettuiamo un broadcasting: moltiplichiamo c_true (1 o 0) per i box
             # shape finale: (1, num_concepts, box_dim)
-            scaled_boxes = c_true * boxes_tensor.unsqueeze(0)
-            
+            if info == "boxes":
+                scaled_info = c_true * boxes_tensor.unsqueeze(0)
+            elif info == "rel_matrix":
+                scaled_info = c_true * prob_matrix.unsqueeze(0)
+
             # 4. Forward pass
-            logits = model(scaled_boxes)
-            
+            logits = model(scaled_info)
+
             # 5. Calcolo Loss e Backpropagation
             loss = criterion(logits, labels)
             loss.backward()
@@ -131,9 +140,13 @@ def train_cbm_classifier(
                 concept_labels = class_concept_matrix[labels].float()
                 
                 c_true = concept_labels.unsqueeze(-1)
-                scaled_boxes = c_true * boxes_tensor.unsqueeze(0)
+
+                if info == "boxes":
+                    scaled_info = c_true * boxes_tensor.unsqueeze(0)
+                elif info == "rel_matrix":
+                    scaled_info = c_true * prob_matrix.unsqueeze(0)
                 
-                logits = model(scaled_boxes)
+                logits = model(scaled_info)
                 loss = criterion(logits, labels)
                 val_loss += loss.item()
                 

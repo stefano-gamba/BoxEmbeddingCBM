@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from box_embeddings.parameterizations import MinDeltaBoxTensor
+from box_embeddings.parameterizations import MinDeltaBoxTensor, BoxTensor
 from box_embeddings.modules.intersection import HardIntersection
 from box_embeddings.modules.volume import SoftVolume
 
@@ -52,26 +52,27 @@ class BoxHierarchyModel(nn.Module):
 # DEFINIZIONE DEL CLASSIFICATORE (c -> y)
 # ==========================================
 class ConceptBottleneckClassifier(nn.Module):
-    def __init__(self, num_concepts, box_dim, num_classes):
+    def __init__(self, num_concepts, box_dim, num_classes, info="boxes"):
         super().__init__()
-        # Seguendo il paper dei CBM per task di classificazione,
-        # utilizziamo un singolo strato lineare (logistic regression).
-        # La dimensione di input è data dal numero di concetti moltiplicato per 
-        # i parametri di ciascun box (2 * dim).
-        input_size = num_concepts * box_dim
+        self.info = info
+        
+        if self.info == "boxes":
+            input_size = num_concepts * box_dim
+        elif self.info == "rel_matrix":
+            input_size = num_concepts * num_concepts
         self.classifier = nn.Linear(input_size, num_classes)
 
-    def forward(self, scaled_boxes):
+    def forward(self, scaled_info):
         """
         Input:
-            scaled_boxes: Tensore di shape (batch_size, num_concepts, box_dim)
-                          rappresenta i box embedding attivati/disattivati.
+            scaled_info: Tensore di shape (batch_size, num_concepts, box_dim)
+                         rappresenta i box embedding attivati/disattivati.
         Output:
             logits: Shape (batch_size, num_classes)
         """
         # Appiattiamo l'input per il layer lineare: 
         # da (batch, num_concepts, box_dim) a (batch, num_concepts * box_dim)
-        flattened_features = scaled_boxes.view(scaled_boxes.size(0), -1)
+        flattened_features = scaled_info.view(scaled_info.size(0), -1)
         
         # Calcoliamo i logit della classe
         logits = self.classifier(flattened_features)
@@ -134,3 +135,45 @@ def prepara_tensore_box(dict_boxes, concept2id):
         boxes_tensor[idx] = theta
         
     return boxes_tensor.detach() # .detach() assicura che i box siano congelati
+
+
+def calcola_matrice_probabilita(boxes_tensor):
+    """
+    Calcola la matrice delle probabilità condizionate P(i|j)
+    usando l'API della libreria Box Embeddings.
+    Shape di output: (num_concepts, num_concepts)
+    """
+    num_concepts = boxes_tensor.size(0)
+
+    box_dim = boxes_tensor.size(-1) // 2
+    
+    # Prepariamo i tensori per il broadcasting: vogliamo combinare ogni box con tutti gli altri
+    # theta_i rappresenta l'ipotesi (intersezione), theta_j rappresenta la premessa (condizionante)
+    theta_i = boxes_tensor.unsqueeze(1).expand(-1, num_concepts, -1) 
+    theta_j = boxes_tensor.unsqueeze(0).expand(num_concepts, -1, -1) 
+
+    theta_i = theta_i.view(num_concepts, num_concepts, 2, box_dim)
+    theta_j = theta_j.view(num_concepts, num_concepts, 2, box_dim)
+    
+    box_i = BoxTensor(theta_i)
+    box_j = BoxTensor(theta_j)
+    
+    # Inizializziamo i moduli operativi della libreria
+    intersection_op = HardIntersection()
+    volume_op = SoftVolume(volume_temperature=1.0) # Restituisce il volume logaritmico di default
+    
+    # 1. Intersezione
+    box_int = intersection_op(box_i, box_j)
+    
+    # 2. Volumi Logaritmici
+    log_vol_int = volume_op(box_int)
+    log_vol_j = volume_op(box_j)
+    
+    # 3. Probabilità condizionata: P(i|j) = exp(log(Vol_int) - log(Vol_j))
+    log_p_i_given_j = log_vol_int - log_vol_j
+    
+    # Esponenziale e clamp per rimuovere eventuali artefatti numerici minimi oltre 1.0
+    p_i_given_j = torch.exp(log_p_i_given_j)
+    prob_matrix = torch.clamp(p_i_given_j, min=0.0, max=1.0)
+    
+    return prob_matrix
