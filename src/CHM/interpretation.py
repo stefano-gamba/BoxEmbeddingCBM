@@ -34,6 +34,7 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
         elif info_type == 'rel_matrix':
             if prob_matrix is None and boxes_tensor is not None:
                 prob_matrix = calcola_matrice_probabilita(boxes_tensor.to(device))
+                prob_matrix.fill_diagonal_(0.0)
             elif prob_matrix is None:
                 raise ValueError("Il modello richiede 'prob_matrix' o 'boxes_tensor'.")
             
