@@ -80,6 +80,7 @@ def train_cbm_classifier(
     if info == "rel_matrix":
         with torch.no_grad():
             prob_matrix = calcola_matrice_probabilita(boxes_tensor)
+            prob_matrix = prob_matrix.to(device)
     
     
     history = {
