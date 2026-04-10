@@ -40,6 +40,9 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
             # Shape: (num_concepts, num_concepts)
             scaled_input = concept_gt.unsqueeze(-1) * prob_matrix.to(device)
             input_flat = scaled_input.view(1, -1)
+        elif info_type == 'concepts':
+            scaled_input = concept_gt.unsqueeze(-1) # shape: (num_concepts, 1)
+            input_flat = scaled_input.view(1, -1)
         else:
             raise ValueError(f"Tipo info '{info_type}' non riconosciuto.")
 
@@ -65,7 +68,7 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
             plot_labels = [concept_names[i] for i in indices]
             plot_values = values.cpu().numpy()
             title = f"Top {top_k} Contributi dei Concetti (Box)"
-        else:
+        elif info_type == 'rel_matrix':
             num_concepts = len(concept_names)
             # Ogni feature è una relazione P(i|j)
             top_vals, top_flat_indices = torch.topk(contributions, min(top_k, num_concepts**2))
@@ -77,6 +80,12 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
                 plot_values.append(val.item())
             title = f"Top {top_k} Contributi delle Relazioni Probabilistiche"
             plot_values = np.array(plot_values)
+        elif info_type == 'concepts':
+            num_concepts = len(concept_names)
+            top_vals, top_indices = torch.topk(contributions, min(top_k, num_concepts))
+            plot_labels = [concept_names[i] for i in top_indices]
+            plot_values = top_vals.cpu().numpy()
+            title = f"Top {top_k} Contributi dei Concetti (Solo Presenza)"
 
     # 6. Visualizzazione Grafica
     plt.figure(figsize=(10, 8))

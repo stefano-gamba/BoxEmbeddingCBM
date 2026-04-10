@@ -114,6 +114,8 @@ def train_cbm_classifier(
                 scaled_info = c_true * boxes_tensor.unsqueeze(0)
             elif info == "rel_matrix":
                 scaled_info = c_true * prob_matrix.unsqueeze(0)
+            elif info == 'concepts':
+                scaled_info = c_true
 
             # 4. Forward pass
             logits = model(scaled_info)
@@ -146,6 +148,8 @@ def train_cbm_classifier(
                     scaled_info = c_true * boxes_tensor.unsqueeze(0)
                 elif info == "rel_matrix":
                     scaled_info = c_true * prob_matrix.unsqueeze(0)
+                elif info == 'concepts':
+                    scaled_info = c_true
                 
                 logits = model(scaled_info)
                 loss = criterion(logits, labels)

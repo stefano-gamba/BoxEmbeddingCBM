@@ -60,6 +60,9 @@ class ConceptBottleneckClassifier(nn.Module):
             input_size = num_concepts * box_dim
         elif self.info == "rel_matrix":
             input_size = num_concepts * num_concepts
+        elif self.info == "concepts":
+            input_size = num_concepts
+        
         self.classifier = nn.Linear(input_size, num_classes)
 
     def forward(self, scaled_info):
