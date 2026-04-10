@@ -6,22 +6,62 @@ from src.CHM.model import calcola_matrice_probabilita
 
 def explain_prediction(model, test_dataloader, concept_names, class_names, 
                        class_concept_matrix, boxes_tensor=None, prob_matrix=None, 
-                       top_k=10, device="cpu", info_type='boxes'):
+                       top_k=10, device="cpu", info_type='boxes',
+                       target_class=None, bipolar=False): # <-- 1. NUOVO PARAMETRO
     """
     Spiega la predizione del modello visualizzando un grafico a barre dei contributi.
-    Usa automaticamente il tipo di info ('boxes' o 'rel_matrix') definito nel modello.
+    Se `target_class` è specificato (nome stringa o indice int), cerca il primo sample 
+    di quella classe nel dataloader. Altrimenti, prende la prima immagine del testloader.
     """
     model.eval()
     model.to(device)
     
-    # 2. Estrazione di un sample dal test set
-    features, labels = next(iter(test_dataloader))
-    features, labels = features.to(device), labels.to(device)
-    # Assumiamo 1-indexed -> 0-indexed
-    label_idx = labels[0].item() - 1
+    # --- 2. NUOVA LOGICA DI RICERCA NEL DATALOADER ---
+    label_idx = None
+    
+    if target_class is not None:
+        # Capiamo se l'utente ha passato una stringa (nome) o un intero (indice)
+        if isinstance(target_class, str):
+            if target_class in class_names:
+                target_idx = class_names.index(target_class)
+            else:
+                raise ValueError(f"Classe '{target_class}' non trovata in class_names.")
+        elif isinstance(target_class, int):
+            target_idx = target_class
+        else:
+            raise TypeError("target_class deve essere una stringa (nome classe) o un intero (indice).")
+
+        # Cerchiamo l'immagine target nel dataloader
+        found = False
+        for batch_features, batch_labels in test_dataloader:
+            for i in range(len(batch_labels)):
+                # Assumiamo 1-indexed -> 0-indexed (come nel tuo codice originale)
+                current_idx = batch_labels[i].item() - 1 
+                
+                if current_idx == target_idx:
+                    label_idx = current_idx
+                    # Se in futuro ti dovessero servire anche le feature dell'immagine:
+                    # features = batch_features[i:i+1].to(device) 
+                    found = True
+                    break
+            if found:
+                break
+                
+        if not found:
+            raise ValueError(f"Nessun sample trovato nel dataloader per la classe target: {target_class}")
+            
+    else:
+        # Comportamento originale: prende il primo elemento del primo batch
+        features, labels = next(iter(test_dataloader))
+        label_idx = labels[0].item() - 1
+    # --- FINE LOGICA DI RICERCA ---
+    
     
     # 3. Preparazione Ground Truth dei concetti
     concept_gt = class_concept_matrix[label_idx].to(device).float()
+
+    if bipolar:
+        concept_gt = concept_gt * 2 - 1
     
     with torch.no_grad():
         # Costruiamo l'input corretto in base a cosa si aspetta il classificatore

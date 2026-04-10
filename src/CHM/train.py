@@ -67,6 +67,7 @@ def train_cbm_classifier(
         EPOCHS=100,
         device="cpu",
         info="boxes",
+        bipolar=False,
     ):
     """
     dataset_classificazione: Lista di tuple (classe_target, vettore_concetti_binario)
@@ -102,6 +103,11 @@ def train_cbm_classifier(
             features = features.to(device)
             labels = labels.to(device).long().view(-1) - 1 # Assumiamo che le classi siano 1-indexed, quindi convertiamo a 0-indexed
             concept_labels = class_concept_matrix[labels].float()
+
+            # Trasformiamo i 0 in -1, e lasciamo gli 1 come 1.
+            # La formula (x * 2) - 1 fa esattamente questo: (0*2)-1 = -1 | (1*2)-1 = 1
+            if bipolar:
+                concept_labels = concept_labels * 2 - 1
             
             optimizer.zero_grad()
             
@@ -142,6 +148,9 @@ def train_cbm_classifier(
                 features = features.to(device)
                 labels = labels.to(device).long().view(-1) - 1
                 concept_labels = class_concept_matrix[labels].float()
+
+                if bipolar:
+                    concept_labels = concept_labels * 2 - 1
                 
                 c_true = concept_labels.unsqueeze(-1)
 

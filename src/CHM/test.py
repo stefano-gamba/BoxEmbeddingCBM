@@ -12,6 +12,7 @@ def test_cbm_classifier(
         boxes_tensor,
         device="cpu",
         info="boxes",
+        bipolar=False,
     ):
     """
     Testa il Concept Bottleneck Classifier usando la ground truth dei concetti.
@@ -49,6 +50,9 @@ def test_cbm_classifier(
             
             # 1. ORACLE TEST: Recuperiamo la Ground Truth dei concetti
             concept_labels = class_concept_matrix[labels].float()
+
+            if bipolar:
+                concept_labels = concept_labels * 2 - 1
             
             # (Se volessi fare Inference End-to-End, qui invece faresti:
             # concept_labels = modello_estrattore_concetti(features) )
