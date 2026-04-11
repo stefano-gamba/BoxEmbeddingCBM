@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from src.CHM.model import calcola_matrice_probabilita
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
 
 def explain_prediction(model, test_dataloader, concept_names, class_names, 
                        class_concept_matrix, boxes_tensor=None, prob_matrix=None, 
@@ -156,3 +158,75 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
     plt.show()
 
     return pred_idx == label_idx
+
+
+def visualizza_separabilita(model, test_dataloader, class_concept_matrix, boxes_tensor):
+    model.eval()
+    all_inputs = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for _, labels in test_dataloader:
+            # Creiamo l'input (scaled boxes)
+            labels_0idx = labels - 1
+            concept_gt = class_concept_matrix[labels_0idx]
+            scaled_input = concept_gt.unsqueeze(-1) * boxes_tensor.unsqueeze(0)
+            input_flat = scaled_input.view(len(labels), -1)
+            
+            all_inputs.append(input_flat.cpu())
+            all_labels.append(labels_0idx.cpu())
+            
+    X = torch.cat(all_inputs).numpy()
+    y = torch.cat(all_labels).numpy()
+    
+    # Proiezione t-SNE
+    tsne = TSNE(n_components=2, random_state=42)
+    X_2d = tsne.fit_transform(X)
+    
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y, cmap='tab20', alpha=0.6)
+    plt.title("Visualizzazione t-SNE degli input al Classificatore")
+    plt.colorbar(scatter)
+    plt.show()
+
+def shuffle_test(model, test_dataloader, class_concept_matrix, boxes_tensor):
+    model.eval()
+    device = next(model.parameters()).device
+    
+    all_preds = []
+    all_shuffled_labels = []
+    
+    with torch.no_grad():
+        for _, labels in test_dataloader:
+            labels_0idx = labels.long() - 1
+            
+            # 1. INPUT ORIGINALE: Concetti corretti per l'animale reale
+            concept_gt = class_concept_matrix[labels_0idx].to(device)
+            scaled_input = concept_gt.unsqueeze(-1) * boxes_tensor.to(device).unsqueeze(0)
+            input_flat = scaled_input.view(len(labels), -1)
+            
+            # 2. PREDIZIONE: Il modello riceve i concetti corretti
+            logits = model(input_flat)
+            preds = torch.argmax(logits, dim=1).cpu()
+            
+            # 3. SHUFFLE DELLE ETICHETTE: Rompiamo il legame
+            # Creiamo un ordine casuale per le etichette di questo batch
+            shuffled_labels = labels_0idx[torch.randperm(len(labels_0idx))].cpu()
+            
+            all_preds.append(preds)
+            all_shuffled_labels.append(shuffled_labels)
+            
+    all_preds = torch.cat(all_preds).numpy()
+    all_shuffled_labels = torch.cat(all_shuffled_labels).numpy()
+    
+    # 4. CALCOLO ACCURACY
+    # Qui l'accuratezza DEVE crollare vicino alla probabilità casuale
+    accuracy = np.mean(all_preds == all_shuffled_labels)
+    num_classes = class_concept_matrix.shape[0]
+    chance_level = 1.0 / num_classes
+    
+    print(f"--- RISULTATI SHUFFLE TEST ---")
+    print(f"Accuratezza Shufflata: {accuracy:.4f}")
+    print(f"Livello del caso (1/{num_classes}): {chance_level:.4f}")
+        
+    return accuracy
