@@ -112,14 +112,20 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
         elif info_type == 'rel_matrix':
             num_concepts = len(concept_names)
             # Ogni feature è una relazione P(i|j)
-            top_vals, top_flat_indices = torch.topk(contributions, min(top_k, num_concepts**2))
+            top_vals, top_flat_indices = torch.topk(contributions, min(top_k, num_concepts**2)) # topk prende solo i positivi
+            bottom_vals, bottom_flat_indices = torch.topk(contributions, min(top_k, num_concepts**2), largest=False) # topk prende solo i negativi
             
             for val, flat_idx in zip(top_vals, top_flat_indices):
                 i = flat_idx // num_concepts
                 j = flat_idx % num_concepts
                 plot_labels.append(f"P({concept_names[i]}|{concept_names[j]})")
                 plot_values.append(val.item())
-            title = f"Top {top_k} Contributi delle Relazioni Probabilistiche"
+            for val, flat_idx in zip(bottom_vals, bottom_flat_indices):
+                i = flat_idx // num_concepts
+                j = flat_idx % num_concepts
+                plot_labels.append(f"P({concept_names[i]}|{concept_names[j]})")
+                plot_values.append(val.item())
+            title = f"Top {top_k} e Bottom {top_k} Contributi delle Relazioni Probabilistiche"
             plot_values = np.array(plot_values)
         elif info_type == 'concepts':
             num_concepts = len(concept_names)
