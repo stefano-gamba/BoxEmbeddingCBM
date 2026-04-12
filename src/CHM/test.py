@@ -13,6 +13,8 @@ def test_cbm_classifier(
         device="cpu",
         info="boxes",
         bipolar=False,
+        oracle=False,
+        concept_predictor=None,
     ):
     """
     Testa il Concept Bottleneck Classifier usando la ground truth dei concetti.
@@ -49,7 +51,12 @@ def test_cbm_classifier(
             labels = labels.to(device).long().view(-1) - 1
             
             # 1. ORACLE TEST: Recuperiamo la Ground Truth dei concetti
-            concept_labels = class_concept_matrix[labels].float()
+            if oracle:
+                concept_labels = class_concept_matrix[labels].float()
+            else:
+                # Se non siamo in modalità oracle, possiamo comunque testare con i concetti predetti (opzionale)
+                with torch.no_grad():
+                    concept_labels, _  = concept_predictor(features) # Supponendo che il modello restituisca anche i logit dei concetti
 
             if bipolar:
                 concept_labels = concept_labels * 2 - 1

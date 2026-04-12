@@ -3,7 +3,6 @@ import torch.nn as nn
 from torch.optim import Adam
 from src.CHM.model import BoxHierarchyModel
 from src.CHM.model import calcola_matrice_probabilita
-from tqdm import tqdm
 
 def train_box(
         model: BoxHierarchyModel,
@@ -194,8 +193,8 @@ def train_concept_predictor(model, train_loader, val_loader, incidence_matrix,
     model: Il modulo h -> c_logits
     incidence_matrix: Tensor (num_classes, num_concepts) con la GT binaria
     """
- 
-    criterion = nn.BCEWithLogitsLoss()
+    
+    model.to(device)
     incidence_matrix = incidence_matrix.to(device)
     
     history = {
@@ -208,14 +207,14 @@ def train_concept_predictor(model, train_loader, val_loader, incidence_matrix,
         model.train()
         train_loss, train_correct, total_elements = 0.0, 0, 0
         
-        for h, y in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]"):
-            h, y = h.to(device), y.to(device)
+        for h, y in train_loader:
+            h, y = h.to(device), y.to(device).long().view(-1) - 1 # Assumiamo che le classi siano 1-indexed, quindi convertiamo a 0-indexed
             
             # Mappiamo le label della classe ai concetti tramite la matrice 
             c_gt = incidence_matrix[y].float() 
             
             optimizer.zero_grad()
-            c_logits = model(h) # Assumendo che il modello h->c restituisca i logit
+            _, c_logits = model(h) # Assumendo che il modello h->c restituisca i logit
             loss = criterion(c_logits, c_gt)
             
             loss.backward()
@@ -234,10 +233,10 @@ def train_concept_predictor(model, train_loader, val_loader, incidence_matrix,
         
         with torch.no_grad():
             for h, y in val_loader:
-                h, y = h.to(device), y.to(device)
+                h, y = h.to(device), y.to(device).long().view(-1) - 1
                 c_gt = incidence_matrix[y].float()
                 
-                c_logits = model(h)
+                _, c_logits = model(h)
                 loss = criterion(c_logits, c_gt)
                 
                 val_loss += loss.item() * h.size(0)
@@ -251,7 +250,18 @@ def train_concept_predictor(model, train_loader, val_loader, incidence_matrix,
         history['val_loss'].append(val_loss / len(val_loader.dataset))
         history['val_acc'].append(val_correct / val_total_elements)
 
-        print(f"Loss: {history['train_loss'][-1]:.4f} | Acc: {history['train_acc'][-1]:.4f} "
-              f"|| Val Loss: {history['val_loss'][-1]:.4f} | Val Acc: {history['val_acc'][-1]:.4f}")
+        print(f"Loss: {history['train_loss'][-1]:.4f} | Acc: {history['train_acc'][-1]*100:.4f} "
+              f"|| Val Loss: {history['val_loss'][-1]:.4f} | Val Acc: {history['val_acc'][-1]*100:.4f}")
 
     return history
+
+def sequential_training(
+        classifier, 
+        concept_predictor, 
+        train_loader, 
+        val_loader, 
+        class_concept_matrix, 
+        epochs, 
+        device
+):
+    pass
