@@ -219,6 +219,8 @@ def shuffle_test(model, test_dataloader, class_concept_matrix, boxes_tensor, pro
         elif prob_matrix is None:
             raise ValueError("Il modello richiede 'prob_matrix' o 'boxes_tensor' per il shuffle test.")
         prob_matrix = prob_matrix.to(device)
+    elif info == 'concepts':
+        pass
     else:
         raise ValueError(f"Tipo info '{info}' non riconosciuto per il shuffle test.")
     
@@ -241,7 +243,7 @@ def shuffle_test(model, test_dataloader, class_concept_matrix, boxes_tensor, pro
             elif info == 'rel_matrix':
                 scaled_input = concept_gt.unsqueeze(-1) * prob_matrix.to(device).unsqueeze(0)
             elif info == 'concepts':
-                scaled_input = concept_gt.unsqueeze(-1)
+                scaled_input = concept_gt.unsqueeze(-1).float()
             else:
                 raise ValueError(f"Tipo info '{info}' non riconosciuto per il shuffle test.")
             

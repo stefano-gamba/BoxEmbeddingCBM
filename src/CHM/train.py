@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.optim import Adam
 from src.CHM.model import BoxHierarchyModel
 from src.CHM.model import calcola_matrice_probabilita
+import matplotlib.pyplot as plt
 
 def train_box(
         model: BoxHierarchyModel,
@@ -265,3 +266,34 @@ def sequential_training(
         device
 ):
     pass
+
+
+def plot_history(history):
+    epochs = range(1, len(history['train']['tot_loss']) + 1)
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
+        
+    # --- Grafico 1: Loss di Train vs Validazione ---
+    ax1.plot(epochs, history['train']['tot_loss'], label='Train Loss Totale', color='blue', linewidth=2)
+    ax1.plot(epochs, history['val']['tot_loss'], label='Val Loss Totale', color='red', linewidth=2)
+        
+        
+    ax1.set_title('Curve di Loss (Train vs Val)', fontsize=14)
+    ax1.set_xlabel('Epoche', fontsize=12)
+    ax1.set_ylabel('Loss', fontsize=12)
+    ax1.legend()
+    ax1.grid(True, linestyle='--', alpha=0.6)
+        
+    # --- Grafico 2: Accuratezza Multi-Classe ---
+    ax2.plot(epochs, history['train']['acc'], label='Train Accuracy', color='green', linewidth=2)
+    ax2.plot(epochs, history['val']['acc'], label='Val Accuracy', color='orange', linewidth=2)
+        
+    ax2.set_title('Accuratezza di Classificazione', fontsize=14)
+    ax2.set_xlabel('Epoche', fontsize=12)
+    ax2.set_ylabel('Accuracy', fontsize=12)
+    ax2.set_ylim(0, 1.05)
+    ax2.legend()
+    ax2.grid(True, linestyle='--', alpha=0.6)
+        
+    plt.tight_layout()
+    plt.show()
