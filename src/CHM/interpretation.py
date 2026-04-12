@@ -1,7 +1,5 @@
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from src.CHM.model import calcola_matrice_probabilita
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
@@ -160,17 +158,34 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
     return pred_idx == label_idx
 
 
-def visualizza_separabilita(model, test_dataloader, class_concept_matrix, boxes_tensor):
+def visualizza_separabilita(model, test_dataloader, class_concept_matrix, boxes_tensor, device="cpu", info='boxes', bipolar=False):
     model.eval()
     all_inputs = []
     all_labels = []
+    model.to(device)
+    class_concept_matrix = class_concept_matrix.to(device)
+    boxes_tensor = boxes_tensor.to(device)
     
     with torch.no_grad():
         for _, labels in test_dataloader:
             # Creiamo l'input (scaled boxes)
             labels_0idx = labels - 1
             concept_gt = class_concept_matrix[labels_0idx]
-            scaled_input = concept_gt.unsqueeze(-1) * boxes_tensor.unsqueeze(0)
+
+            if bipolar:
+                concept_gt = concept_gt * 2 - 1
+            
+            if info == 'boxes':
+                scaled_input = concept_gt.unsqueeze(-1) * boxes_tensor.unsqueeze(0)
+            elif info == 'rel_matrix':
+                with torch.no_grad():
+                    prob_matrix = calcola_matrice_probabilita(boxes_tensor)
+                    prob_matrix.fill_diagonal_(0.0)
+                scaled_input = concept_gt.unsqueeze(-1) * prob_matrix.unsqueeze(0)
+            elif info == 'concepts':
+                scaled_input = concept_gt.unsqueeze(-1)
+            else:
+                raise ValueError(f"Tipo info '{info}' non riconosciuto per la visualizzazione.")
             input_flat = scaled_input.view(len(labels), -1)
             
             all_inputs.append(input_flat.cpu())
@@ -189,9 +204,23 @@ def visualizza_separabilita(model, test_dataloader, class_concept_matrix, boxes_
     plt.colorbar(scatter)
     plt.show()
 
-def shuffle_test(model, test_dataloader, class_concept_matrix, boxes_tensor):
+def shuffle_test(model, test_dataloader, class_concept_matrix, boxes_tensor, prob_matrix=None, info='boxes', bipolar=False):
     model.eval()
     device = next(model.parameters()).device
+
+    if info == 'boxes':
+        if boxes_tensor is None:
+            raise ValueError("Il modello richiede 'boxes_tensor' per il shuffle test.")
+        boxes_tensor = boxes_tensor.to(device)
+    elif info == 'rel_matrix':
+        if prob_matrix is None and boxes_tensor is not None:
+            prob_matrix = calcola_matrice_probabilita(boxes_tensor.to(device))
+            prob_matrix.fill_diagonal_(0.0)
+        elif prob_matrix is None:
+            raise ValueError("Il modello richiede 'prob_matrix' o 'boxes_tensor' per il shuffle test.")
+        prob_matrix = prob_matrix.to(device)
+    else:
+        raise ValueError(f"Tipo info '{info}' non riconosciuto per il shuffle test.")
     
     all_preds = []
     all_shuffled_labels = []
@@ -202,7 +231,20 @@ def shuffle_test(model, test_dataloader, class_concept_matrix, boxes_tensor):
             
             # 1. INPUT ORIGINALE: Concetti corretti per l'animale reale
             concept_gt = class_concept_matrix[labels_0idx].to(device)
-            scaled_input = concept_gt.unsqueeze(-1) * boxes_tensor.to(device).unsqueeze(0)
+
+            if bipolar:
+                concept_gt = concept_gt * 2 - 1
+            
+
+            if info == 'boxes':
+                scaled_input = concept_gt.unsqueeze(-1) * boxes_tensor.to(device).unsqueeze(0)
+            elif info == 'rel_matrix':
+                scaled_input = concept_gt.unsqueeze(-1) * prob_matrix.to(device).unsqueeze(0)
+            elif info == 'concepts':
+                scaled_input = concept_gt.unsqueeze(-1)
+            else:
+                raise ValueError(f"Tipo info '{info}' non riconosciuto per il shuffle test.")
+            
             input_flat = scaled_input.view(len(labels), -1)
             
             # 2. PREDIZIONE: Il modello riceve i concetti corretti

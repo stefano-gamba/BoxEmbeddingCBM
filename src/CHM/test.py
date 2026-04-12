@@ -54,8 +54,6 @@ def test_cbm_classifier(
             if bipolar:
                 concept_labels = concept_labels * 2 - 1
             
-            # (Se volessi fare Inference End-to-End, qui invece faresti:
-            # concept_labels = modello_estrattore_concetti(features) )
             
             # 2. Mascheramento (Broadcasting)
             # c_true shape: (batch_size, num_concepts, 1)
