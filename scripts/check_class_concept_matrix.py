@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 
 def parse_concepts(filepath):
     """Legge il file dei concetti e restituisce una lista ordinata."""
@@ -46,6 +47,26 @@ def parse_matrix(filepath, num_cols):
                 matrix.append(row)
     return matrix
 
+def verifica_univocita(classes, matrix):
+    """
+    Analizza la matrice per trovare firme identiche tra classi diverse.
+    """
+    # Usiamo un dizionario dove:
+    # Key = la stringa della firma (es. "01001...")
+    # Value = lista di nomi delle classi che hanno quella firma
+    signature_map = defaultdict(list)
+    
+    for i, cls in enumerate(classes):
+        if i < len(matrix):
+            # Trasformiamo la riga (lista di '0'/'1') in una stringa unica
+            signature_str = "".join(matrix[i])
+            signature_map[signature_str].append(cls)
+    
+    # Filtriamo solo le firme che hanno più di una classe associata
+    duplicates = {sig: names for sig, names in signature_map.items() if len(names) > 1}
+    
+    return signature_map, duplicates
+
 def main():
     # Nomi dei file (assicurati che siano nella stessa cartella dello script)
     concepts_file = '../AwA2_Dataset_Labels/Animals_with_Attributes2/extended_concepts.txt'
@@ -59,6 +80,8 @@ def main():
     # 2. Carica la matrice sapendo che le colonne corrispondono al numero totale dei concetti
     num_concepts = len(concepts)
     matrix = parse_matrix(matrix_file, num_concepts)
+
+    sig_map, duplicates = verifica_univocita(classes, matrix)
     
     # 3. Mappa e stampa i risultati
     print("=== MAPPATURA CLASSI E CONCETTI ===\n")
@@ -74,6 +97,24 @@ def main():
             print("-" * 50)
         else:
             print(f"Attenzione: Nessuna riga nella matrice trovata per la classe {cls}")
+    
+
+    print("=== REPORT UNIVOCITÀ DELLE FIRME ===\n")
+    print(f"Totale Classi analizzate: {len(classes)}")
+    print(f"Totale Firme Uniche trovate: {len(sig_map)}")
+    print("-" * 50)
+    
+    if not duplicates:
+        print("✅ OTTIMO: Tutte le firme sono univoche. Ogni classe ha un set di attributi unico.")
+    else:
+        print(f"⚠️ ATTENZIONE: Trovate {len(duplicates)} collisioni!")
+        print("Le seguenti classi hanno la STESSA firma concettuale e sono indistinguibili per il CBM:")
+        for sig, names in duplicates.items():
+            # Contiamo quanti attributi '1' ha questa firma duplicata
+            num_active = sig.count('1')
+            print(f"  • {', '.join(names)} (Attributi attivi: {num_active})")
+    
+    print("\n" + "="*50 + "\n")
 
 if __name__ == '__main__':
     main()
