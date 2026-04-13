@@ -99,6 +99,101 @@ def test_cbm_classifier(
     return accuracy, all_preds, all_labels
 
 
+def test_sequential_cbm(
+        classifier, 
+        concept_predictor, 
+        test_dataloader, 
+        boxes_tensor,
+        class_concept_matrix=None, # Opzionale, utile solo se vuoi stampare il report o calcolare la concept accuracy
+        device="cpu",
+        info="boxes",
+        bipolar=False
+):
+    """
+    Testa il Concept Bottleneck Classifier in modalità Sequenziale.
+    Il flusso è strettamente: feature -> concept_pred -> y_pred.
+    Non usa MAI la ground truth dei concetti per le predizioni finali.
+    """
+    
+    print("Inizio valutazione sul Test Set (Modalità Sequenziale)...")
+    
+    # Mettiamo entrambi i modelli in modalità valutazione
+    classifier.eval()
+    concept_predictor.eval()
+    
+    classifier.to(device)
+    concept_predictor.to(device)
+    boxes_tensor = boxes_tensor.to(device)
+
+    # Pre-calcolo della matrice di probabilità (se richiesta)
+    if info == "rel_matrix":
+        with torch.no_grad():
+            prob_matrix = calcola_matrice_probabilita(boxes_tensor) # Assicurati di avere questa funzione a scope
+            prob_matrix = prob_matrix.to(device)
+            prob_matrix.fill_diagonal_(0.0)
+    
+    test_correct = 0
+    test_samples = 0
+    
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for features, labels in test_dataloader:
+            features = features.to(device)
+            # Portiamo le classi a 0-indexed
+            labels = labels.to(device).long().view(-1) - 1
+            
+            # -------------------------------------------------------------
+            # STEP 1: h -> c_pred (Estrazione dei concetti predetti)
+            # -------------------------------------------------------------
+            c_probs, _ = concept_predictor(features)
+            concept_preds = c_probs
+            
+            if bipolar:
+                # Scaliamo le probabilità [0, 1] in [-1, 1]
+                concept_preds = concept_preds * 2 - 1
+            
+            # Espandiamo per il broadcasting: (batch_size, num_concepts, 1)
+            c_pred_expanded = concept_preds.unsqueeze(-1)
+            
+            # -------------------------------------------------------------
+            # STEP 2: Mascheramento Soft (Scaling)
+            # -------------------------------------------------------------
+            if info == "boxes":
+                scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
+            elif info == "rel_matrix":
+                scaled_info = c_pred_expanded * prob_matrix.unsqueeze(0)
+            elif info == 'concepts':
+                scaled_info = c_pred_expanded
+            
+            # -------------------------------------------------------------
+            # STEP 3: c_pred -> y_pred (Predizione Finale)
+            # -------------------------------------------------------------
+            logits = classifier(scaled_info)
+            preds = torch.argmax(logits, dim=1)
+            
+            # Aggiornamento metriche
+            test_correct += (preds == labels).sum().item()
+            test_samples += labels.size(0)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            
+    # Calcolo Accuratezza Totale
+    accuracy = (test_correct / test_samples) * 100
+    print(f"\nRisultati Test Set (Sequenziale):")
+    print(f"Accuratezza Totale: {accuracy:.2f}% ({test_correct}/{test_samples})")
+    
+    # Classification Report (opzionale)
+    if class_concept_matrix is not None:
+        print("\nClassification Report (prime 10 classi):")
+        labels_to_print = list(range(min(10, class_concept_matrix.size(0))))
+        print(classification_report(all_labels, all_preds, labels=labels_to_print, zero_division=0))
+    
+    return accuracy, all_preds, all_labels
+
+
 def plot_test_results(accuracy, preds, labels, class_names=None, figsize=(12, 10)):
     """
     Visualizza i risultati del test set.
