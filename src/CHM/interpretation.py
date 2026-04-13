@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from src.CHM.model import calcola_matrice_probabilita
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 
 def explain_prediction(model, test_dataloader, concept_names, class_names, 
@@ -158,7 +159,16 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
     return pred_idx == label_idx
 
 
-def visualizza_separabilita(model, test_dataloader, class_concept_matrix, boxes_tensor, device="cpu", info='boxes', bipolar=False):
+def visualizza_separabilita(
+        model, 
+        test_dataloader, 
+        class_concept_matrix, 
+        boxes_tensor, 
+        device="cpu", 
+        info='boxes', 
+        bipolar=False,
+        projection_method='tnse'
+):
     model.eval()
     all_inputs = []
     all_labels = []
@@ -194,13 +204,16 @@ def visualizza_separabilita(model, test_dataloader, class_concept_matrix, boxes_
     X = torch.cat(all_inputs).numpy()
     y = torch.cat(all_labels).numpy()
     
-    # Proiezione t-SNE
-    tsne = TSNE(n_components=2, random_state=42)
-    X_2d = tsne.fit_transform(X)
+    if projection_method == 'tsne':
+        proj = TSNE(n_components=2, random_state=42)
+    elif projection_method == 'pca':
+        proj = PCA(n_components=2, random_state=42)
+
+    X_2d = proj.fit_transform(X)
     
     plt.figure(figsize=(10, 8))
     scatter = plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y, cmap='tab20', alpha=0.6)
-    plt.title("Visualizzazione t-SNE degli input al Classificatore")
+    plt.title(f"Visualizzazione {projection_method} degli input al Classificatore")
     plt.colorbar(scatter)
     plt.show()
 
