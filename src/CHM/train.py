@@ -309,7 +309,7 @@ def sequential_training(
     
     boxes_tensor = boxes_tensor.to(device)
 
-    if info == "rel_matrix":
+    if info == "rel_matrix" or info == "all":
         with torch.no_grad():
             prob_matrix = calcola_matrice_probabilita(boxes_tensor)
             prob_matrix = prob_matrix.to(device)
@@ -354,9 +354,15 @@ def sequential_training(
             if info == "boxes":
                 scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
             elif info == "rel_matrix":
-                scaled_info = c_pred_expanded * prob_matrix.unsqueeze(0)
+                joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
+                scaled_info = joint_activation * prob_matrix.unsqueeze(0)
             elif info == 'concepts':
                 scaled_info = c_pred_expanded
+            elif info == 'all':
+                scaled_concepts = c_pred_expanded 
+                joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
+                scaled_rel = joint_activation * prob_matrix.unsqueeze(0)
+                scaled_info = (scaled_concepts, scaled_rel)
 
             # Forward pass del classificatore
             logits = classifier(scaled_info)
@@ -394,9 +400,15 @@ def sequential_training(
                 if info == "boxes":
                     scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
                 elif info == "rel_matrix":
-                    scaled_info = c_pred_expanded * prob_matrix.unsqueeze(0)
+                    joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
+                    scaled_info = joint_activation * prob_matrix.unsqueeze(0)
                 elif info == 'concepts':
                     scaled_info = c_pred_expanded
+                elif info == 'all':
+                    scaled_concepts = c_pred_expanded 
+                    joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
+                    scaled_rel = joint_activation * prob_matrix.unsqueeze(0)
+                    scaled_info = (scaled_concepts, scaled_rel)
                 
                 logits = classifier(scaled_info)
                 loss = criterion_cls(logits, labels)
