@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 from src.CHM.model import BoxHierarchyModel
-from src.CHM.model import calcola_matrice_probabilita
-import matplotlib.pyplot as plt
+from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing
+from src.CP.train import train_concept_predictor
 
 def train_box(
         model: BoxHierarchyModel,
@@ -188,77 +188,6 @@ def train_cbm_classifier(
     return history
 
 
-def train_concept_predictor(model, train_loader, val_loader, incidence_matrix, 
-                            optimizer, criterion, epochs, device):
-    """
-    model: Il modulo h -> c_logits
-    incidence_matrix: Tensor (num_classes, num_concepts) con la GT binaria
-    """
-    
-    model.to(device)
-    incidence_matrix = incidence_matrix.to(device)
-    
-    history = {
-        'train': {'tot_loss': [], 'acc': []},
-        'val':   {'tot_loss': [], 'acc': []}
-    }
-
-    for epoch in range(epochs):
-        # --- Fase di Training ---
-        model.train()
-        train_loss, train_correct, total_elements = 0.0, 0, 0
-        
-        for h, y in train_loader:
-            h, y = h.to(device), y.to(device).long().view(-1) - 1 # Assumiamo che le classi siano 1-indexed, quindi convertiamo a 0-indexed
-            
-            # Mappiamo le label della classe ai concetti tramite la matrice 
-            c_gt = incidence_matrix[y].float() 
-            
-            optimizer.zero_grad()
-            _, c_logits = model(h) # Assumendo che il modello h->c restituisca i logit
-            loss = criterion(c_logits, c_gt)
-            
-            loss.backward()
-            optimizer.step()
-            
-            # Metriche
-            train_loss += loss.item() * h.size(0)
-            # Accuratezza: soglia a 0 sui logit (equivale a 0.5 dopo la sigmoid) [cite: 112]
-            preds = (c_logits > 0).float()
-            train_correct += (preds == c_gt).sum().item()
-            total_elements += h.size(0) * c_gt.size(1) # num_samples * num_concepts
-
-        # --- Fase di Validation ---
-        model.eval()
-        val_loss, val_correct, val_total_elements = 0.0, 0, 0
-        
-        with torch.no_grad():
-            for h, y in val_loader:
-                h, y = h.to(device), y.to(device).long().view(-1) - 1
-                c_gt = incidence_matrix[y].float()
-                
-                _, c_logits = model(h)
-                loss = criterion(c_logits, c_gt)
-                
-                val_loss += loss.item() * h.size(0)
-                preds = (c_logits > 0).float()
-                val_correct += (preds == c_gt).sum().item()
-                val_total_elements += h.size(0) * c_gt.size(1)
-
-        t_batches = len(train_loader)
-        v_batches = len(val_loader)
-        
-        history['train']['tot_loss'].append(train_loss / t_batches)
-        history['train']['acc'].append(train_correct / total_elements)
-        history['val']['tot_loss'].append(val_loss / v_batches)
-        history['val']['acc'].append(val_correct / val_total_elements)
-
-        print(f"Loss: {history['train']['tot_loss'][-1]:.4f} | Acc: {history['train']['acc'][-1]*100:.4f} "
-              f"|| Val Loss: {history['val']['tot_loss'][-1]:.4f} | Val Acc: {history['val']['acc'][-1]*100:.4f}")
-
-    return history
-
-
 def sequential_training(
         classifier, 
         concept_predictor, 
@@ -273,7 +202,9 @@ def sequential_training(
         epochs, 
         device,
         info="boxes",
-        bipolar=False
+        bipolar=False,
+        logical_smoothing=False,
+        alpha=0.5,
 ):
     """
     Esegue l'addestramento Sequential Bottleneck in due fasi:
@@ -309,11 +240,12 @@ def sequential_training(
     
     boxes_tensor = boxes_tensor.to(device)
 
-    if info == "rel_matrix" or info == "all":
+    if info == "rel_matrix" or info == "all" or logical_smoothing:
         with torch.no_grad():
             prob_matrix = calcola_matrice_probabilita(boxes_tensor)
             prob_matrix = prob_matrix.to(device)
-            prob_matrix.fill_diagonal_(0.0)
+            if not logical_smoothing:
+                prob_matrix.fill_diagonal_(0.0)
             
     history_cls = {
         'train': {'tot_loss': [], 'acc': []},
@@ -337,8 +269,11 @@ def sequential_training(
                 # Assumiamo che il predittore restituisca (probs, logits)
                 c_probs, _ = concept_predictor(features)
             
-            # Usiamo le probabilità (valori tra 0 e 1) per il mascheramento soft
-            concept_preds = c_probs
+            if logical_smoothing:
+                concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
+            else:
+                # Usiamo le probabilità (valori tra 0 e 1) per il mascheramento soft
+                concept_preds = c_probs
 
             if bipolar:
                 # Mappa le probabilità da [0, 1] a [-1, 1] 
@@ -390,7 +325,11 @@ def sequential_training(
                 
                 # Otteniamo i concetti predetti sul set di validazione
                 c_probs, _ = concept_predictor(features)
-                concept_preds = c_probs
+
+                if logical_smoothing:
+                    concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha=0.5)
+                else:
+                    concept_preds = c_probs
 
                 if bipolar:
                     concept_preds = concept_preds * 2 - 1
@@ -433,34 +372,3 @@ def sequential_training(
 
     print("\nAddestramento Sequenziale completato.")
     return history_concept, history_cls
-
-
-def plot_history(history):
-    epochs = range(1, len(history['train']['tot_loss']) + 1)
-    
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
-        
-    # --- Grafico 1: Loss di Train vs Validazione ---
-    ax1.plot(epochs, history['train']['tot_loss'], label='Train Loss Totale', color='blue', linewidth=2)
-    ax1.plot(epochs, history['val']['tot_loss'], label='Val Loss Totale', color='red', linewidth=2)
-        
-        
-    ax1.set_title('Curve di Loss (Train vs Val)', fontsize=14)
-    ax1.set_xlabel('Epoche', fontsize=12)
-    ax1.set_ylabel('Loss', fontsize=12)
-    ax1.legend()
-    ax1.grid(True, linestyle='--', alpha=0.6)
-        
-    # --- Grafico 2: Accuratezza Multi-Classe ---
-    ax2.plot(epochs, history['train']['acc'], label='Train Accuracy', color='green', linewidth=2)
-    ax2.plot(epochs, history['val']['acc'], label='Val Accuracy', color='orange', linewidth=2)
-        
-    ax2.set_title('Accuratezza di Classificazione', fontsize=14)
-    ax2.set_xlabel('Epoche', fontsize=12)
-    ax2.set_ylabel('Accuracy', fontsize=12)
-    ax2.set_ylim(0, 1.05)
-    ax2.legend()
-    ax2.grid(True, linestyle='--', alpha=0.6)
-        
-    plt.tight_layout()
-    plt.show()

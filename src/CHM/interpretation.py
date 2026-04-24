@@ -1,18 +1,25 @@
 import torch
 import numpy as np
-from src.CHM.model import calcola_matrice_probabilita
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
+from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing
 import matplotlib.pyplot as plt
 
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-
-def explain_prediction(model, test_dataloader, concept_names, class_names, 
-                       class_concept_matrix, boxes_tensor=None, prob_matrix=None, 
-                       top_k=10, device="cpu", info_type='boxes',
-                       target_class=None, bipolar=False, concept_predictor=None):
+def explain_prediction(
+        model, 
+        test_dataloader, 
+        concept_names, 
+        class_names, 
+        class_concept_matrix, 
+        boxes_tensor=None, 
+        prob_matrix=None, 
+        top_k=10, 
+        device="cpu", 
+        info_type='boxes',
+        target_class=None, 
+        bipolar=False, 
+        concept_predictor=None,
+        logical_smoothing=False,
+        alpha=0.5,
+    ):
     """
     Spiega la predizione del modello visualizzando un grafico a barre dei contributi.
     Se concept_predictor è fornito (Sequential Mode), usa le predizioni dei concetti 
@@ -68,10 +75,19 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
     concept_gt_original = class_concept_matrix[label_idx].to(device).float()
 
     with torch.no_grad():
+        if info_type == 'rel_matrix' or info_type == 'all' or logical_smoothing:
+            if prob_matrix is None and boxes_tensor is not None:
+                # Assicurati di avere la tua funzione calcola_matrice_probabilita disponibile
+                prob_matrix = calcola_matrice_probabilita(boxes_tensor.to(device))
+                if not logical_smoothing:
+                    prob_matrix.fill_diagonal_(0.0)
         if concept_predictor is not None:
             # SEQUENTIAL MODE: Estraiamo le probabilità predette dal modello h -> c
             c_probs, _ = concept_predictor(target_features.to(device))
-            concept_base = c_probs.squeeze(0) # shape: (num_concepts,)
+            if logical_smoothing:
+                concept_base = apply_logical_smoothing(c_probs.squeeze(0), prob_matrix, alpha).squeeze(0) # shape: (num_concepts,)
+            else:
+                concept_base = c_probs.squeeze(0) # shape: (num_concepts,)
         else:
             # ORACLE MODE: Usiamo la Ground Truth direttamente
             concept_base = concept_gt_original
@@ -89,13 +105,7 @@ def explain_prediction(model, test_dataloader, concept_names, class_names,
             scaled_input = concept_input.unsqueeze(-1) * boxes_tensor.to(device)
             input_flat = scaled_input.view(1, -1)
             
-        elif info_type == 'rel_matrix':
-            if prob_matrix is None and boxes_tensor is not None:
-                # Assicurati di avere la tua funzione calcola_matrice_probabilita disponibile
-                prob_matrix = calcola_matrice_probabilita(boxes_tensor.to(device))
-                prob_matrix.fill_diagonal_(0.0)
-            elif prob_matrix is None:
-                raise ValueError("Il modello richiede 'prob_matrix' o 'boxes_tensor'.")
+        elif info_type == 'rel_matrix' or info_type == 'all' or logical_smoothing:
             scaled_input = concept_input.unsqueeze(-1) * prob_matrix.to(device)
             input_flat = scaled_input.view(1, -1)
             
