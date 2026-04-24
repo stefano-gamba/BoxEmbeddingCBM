@@ -69,6 +69,8 @@ def train_cbm_classifier(
         device="cpu",
         info="boxes",
         bipolar=False,
+        smoothing_logic=False,
+        alpha=0.5,
     ):
     """
     dataset_classificazione: Lista di tuple (classe_target, vettore_concetti_binario)
@@ -79,11 +81,12 @@ def train_cbm_classifier(
     class_concept_matrix = class_concept_matrix.to(device)
     boxes_tensor = boxes_tensor.to(device)
 
-    if info == "rel_matrix":
+    if info == "rel_matrix" or info == "all" or smoothing_logic:
         with torch.no_grad():
             prob_matrix = calcola_matrice_probabilita(boxes_tensor)
             prob_matrix = prob_matrix.to(device)
-            prob_matrix.fill_diagonal_(0.0)
+            if not smoothing_logic:
+                prob_matrix.fill_diagonal_(0.0)
     
     
     history = {
@@ -104,6 +107,10 @@ def train_cbm_classifier(
             features = features.to(device)
             labels = labels.to(device).long().view(-1) - 1 # Assumiamo che le classi siano 1-indexed, quindi convertiamo a 0-indexed
             concept_labels = class_concept_matrix[labels].float()
+
+            if smoothing_logic:
+                concept_labels = apply_logical_smoothing(concept_labels, prob_matrix, alpha)
+            
 
             # Trasformiamo i 0 in -1, e lasciamo gli 1 come 1.
             # La formula (x * 2) - 1 fa esattamente questo: (0*2)-1 = -1 | (1*2)-1 = 1
@@ -149,6 +156,9 @@ def train_cbm_classifier(
                 features = features.to(device)
                 labels = labels.to(device).long().view(-1) - 1
                 concept_labels = class_concept_matrix[labels].float()
+
+                if smoothing_logic:
+                    concept_labels = apply_logical_smoothing(concept_labels, prob_matrix, alpha)
 
                 if bipolar:
                     concept_labels = concept_labels * 2 - 1

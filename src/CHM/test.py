@@ -12,6 +12,8 @@ def test_cbm_classifier(
         bipolar=False,
         oracle=False,
         concept_predictor=None,
+        smoothing_logic=False,
+        alpha=0.5,
     ):
     """
     Testa il Concept Bottleneck Classifier usando la ground truth dei concetti.
@@ -27,12 +29,13 @@ def test_cbm_classifier(
     class_concept_matrix = class_concept_matrix.to(device)
     
 
-    if info == "rel_matrix" or info == "all":
+    if info == "rel_matrix" or info == "all" or smoothing_logic:
         # Pre-calcolo della matrice di probabilità
         with torch.no_grad():
             prob_matrix = calcola_matrice_probabilita(boxes_tensor)
             prob_matrix = prob_matrix.to(device)
-            prob_matrix.fill_diagonal_(0.0)
+            if not smoothing_logic:
+                prob_matrix.fill_diagonal_(0.0)
     
     test_correct = 0
     test_samples = 0
@@ -55,6 +58,12 @@ def test_cbm_classifier(
                 # Se non siamo in modalità oracle, possiamo comunque testare con i concetti predetti (opzionale)
                 with torch.no_grad():
                     concept_labels, _  = concept_predictor(features) # Supponendo che il modello restituisca anche i logit dei concetti
+
+            if smoothing_logic:
+                concept_labels = apply_logical_smoothing(concept_labels, prob_matrix, alpha)
+                if oracle:
+                    concept_labels = (concept_labels > 0.5).float()
+
 
             if bipolar:
                 concept_labels = concept_labels * 2 - 1
