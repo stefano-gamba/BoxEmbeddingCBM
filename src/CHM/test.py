@@ -13,33 +13,28 @@ def test_cbm_classifier(
         oracle=False,
         concept_predictor=None,
         smoothing_logic=False,
-        alpha=0.5,
+        alpha=0.1, # <-- Tienilo basso per dare peso alla matrice
+        ablation=False,
     ):
-    """
-    Testa il Concept Bottleneck Classifier usando la ground truth dei concetti.
     
-    Argomenti:
-        model: Il modello ConceptBottleneckClassifier addestrato.
-        test_dataloader: Dataloader del set di test.
-        class_concept_matrix: Matrice (num_classes, num_concepts) con le annotazioni GT.
-        prob_matrix: Matrice (num_concepts, num_concepts) con le P(i|j) pre-calcolate dai box.
-    """
     model.eval()
     model.to(device)
     class_concept_matrix = class_concept_matrix.to(device)
     
-
+    # --- FIX: GESTIONE SEPARATA DELLE MATRICI ---
     if info == "rel_matrix" or info == "all" or smoothing_logic:
-        # Pre-calcolo della matrice di probabilità
         with torch.no_grad():
-            prob_matrix = calcola_matrice_probabilita(boxes_tensor)
-            prob_matrix = prob_matrix.to(device)
-            if not smoothing_logic:
-                prob_matrix.fill_diagonal_(0.0)
+            base_prob_matrix = calcola_matrice_probabilita(boxes_tensor).to(device)
+            
+            # 1. Matrice per lo Smoothing (Diagonale INTATTA)
+            smoothing_matrix = base_prob_matrix.clone()
+            
+            # 2. Matrice per il Modello (Diagonale AZZERATA, come in training)
+            model_prob_matrix = base_prob_matrix.clone()
+            model_prob_matrix.fill_diagonal_(0.0)
     
     test_correct = 0
     test_samples = 0
-    
     all_preds = []
     all_labels = []
     
@@ -48,62 +43,50 @@ def test_cbm_classifier(
     with torch.no_grad():
         for features, labels in test_dataloader:
             features = features.to(device)
-            # Assumiamo che le classi siano 1-indexed (es. 1 a 200 come nel dataset CUB), le portiamo a 0-indexed
             labels = labels.to(device).long().view(-1) - 1
             
-            # 1. ORACLE TEST: Recuperiamo la Ground Truth dei concetti
             if oracle:
                 concept_labels = class_concept_matrix[labels].float()
             else:
-                # Se non siamo in modalità oracle, possiamo comunque testare con i concetti predetti (opzionale)
                 with torch.no_grad():
-                    concept_labels, _  = concept_predictor(features) # Supponendo che il modello restituisca anche i logit dei concetti
+                    concept_labels, _  = concept_predictor(features)
 
+            if ablation:
+                indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
+                concept_labels = concept_labels[:, indices_to_keep]
+
+            # --- APPLICAZIONE DELLO SMOOTHING E BINARIZZAZIONE ---
             if smoothing_logic:
-                concept_labels = apply_logical_smoothing(concept_labels, prob_matrix, alpha)
-                if oracle:
-                    concept_labels = (concept_labels > 0.5).float()
-
+                # Usiamo smoothing_matrix (con diagonale a 1)
+                concept_labels = apply_logical_smoothing(concept_labels, smoothing_matrix, alpha, ablation)
+                # Binarizziamo per non sconvolgere il layer lineare
+                concept_labels = (concept_labels > 0.5).float()
 
             if bipolar:
                 concept_labels = concept_labels * 2 - 1
             
-            
-            # 2. Mascheramento (Broadcasting)
-            # c_true shape: (batch_size, num_concepts, 1)
             c_true = concept_labels.unsqueeze(-1)
 
+            # --- CREAZIONE DELL'INPUT (Usa model_prob_matrix!) ---
             if info == "boxes":
                 scaled_info = c_true * boxes_tensor.unsqueeze(0)
             elif info == "rel_matrix":
                 joint_activation = concept_labels.unsqueeze(2) * concept_labels.unsqueeze(1)
-                scaled_info = joint_activation * prob_matrix.unsqueeze(0)
+                # FIX: Usiamo model_prob_matrix (con diagonale a 0)
+                scaled_info = joint_activation * model_prob_matrix.unsqueeze(0) 
             elif info == 'concepts':
                 scaled_info = c_true
             
-            
-            # 3. Predizione
             logits = model(scaled_info)
             preds = torch.argmax(logits, dim=1)
             
-            # 4. Aggiornamento metriche
             test_correct += (preds == labels).sum().item()
             test_samples += labels.size(0)
-            
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
             
-    # Calcolo Accuratezza
     accuracy = (test_correct / test_samples) * 100
-    print(f"\nRisultati Test Set:")
-    print(f"Accuratezza Totale: {accuracy:.2f}% ({test_correct}/{test_samples})")
-    
-    # Restituisce anche un report più dettagliato se hai classi sbilanciate
-    print("\nClassification Report (prime 10 classi):")
-    # (limitiamo la stampa alle prime 10 classi per leggibilità se il dataset è molto grande)
-    labels_to_print = list(range(min(10, class_concept_matrix.size(0))))
-    print(classification_report(all_labels, all_preds, labels=labels_to_print, zero_division=0))
-    
+    print(f"\nAccuratezza Totale: {accuracy:.2f}%")
     return accuracy, all_preds, all_labels
 
 

@@ -19,6 +19,7 @@ def explain_prediction(
         concept_predictor=None,
         logical_smoothing=False,
         alpha=0.5,
+        ablation=False,
     ):
     """
     Spiega la predizione del modello visualizzando un grafico a barre dei contributi.
@@ -84,13 +85,18 @@ def explain_prediction(
         if concept_predictor is not None:
             # SEQUENTIAL MODE: Estraiamo le probabilità predette dal modello h -> c
             c_probs, _ = concept_predictor(target_features.to(device))
-            if logical_smoothing:
-                concept_base = apply_logical_smoothing(c_probs.squeeze(0), prob_matrix, alpha).squeeze(0) # shape: (num_concepts,)
-            else:
-                concept_base = c_probs.squeeze(0) # shape: (num_concepts,)
+            concept_base = c_probs.squeeze(0) # shape: (num_concepts,)
         else:
             # ORACLE MODE: Usiamo la Ground Truth direttamente
             concept_base = concept_gt_original
+
+
+        if ablation:
+            indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
+            concept_base = concept_base[indices_to_keep]
+
+        if logical_smoothing:
+            concept_base = apply_logical_smoothing(concept_base, prob_matrix, alpha, ablation).squeeze(0) # shape: (num_concepts,)
 
         # Applichiamo la trasformazione bipolare se richiesta [0, 1] -> [-1, 1]
         if bipolar:
@@ -105,8 +111,12 @@ def explain_prediction(
             scaled_input = concept_input.unsqueeze(-1) * boxes_tensor.to(device)
             input_flat = scaled_input.view(1, -1)
             
-        elif info_type == 'rel_matrix' or info_type == 'all' or logical_smoothing:
-            scaled_input = concept_input.unsqueeze(-1) * prob_matrix.to(device)
+        elif info_type == 'rel_matrix':
+            joint_activation = concept_input.unsqueeze(1) * concept_input.unsqueeze(0)
+            scaled_input = joint_activation * prob_matrix.to(device).unsqueeze(0)
+            input_flat = scaled_input.view(1, -1)
+            
+        elif info_type == 'all':
             input_flat = scaled_input.view(1, -1)
             
         elif info_type == 'concepts':

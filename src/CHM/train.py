@@ -71,6 +71,7 @@ def train_cbm_classifier(
         bipolar=False,
         smoothing_logic=False,
         alpha=0.5,
+        ablation=False,
     ):
     """
     dataset_classificazione: Lista di tuple (classe_target, vettore_concetti_binario)
@@ -107,6 +108,9 @@ def train_cbm_classifier(
             features = features.to(device)
             labels = labels.to(device).long().view(-1) - 1 # Assumiamo che le classi siano 1-indexed, quindi convertiamo a 0-indexed
             concept_labels = class_concept_matrix[labels].float()
+            if ablation:
+                indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
+                concept_labels = concept_labels[:, indices_to_keep]
 
             if smoothing_logic:
                 concept_labels = apply_logical_smoothing(concept_labels, prob_matrix, alpha)
@@ -128,7 +132,8 @@ def train_cbm_classifier(
             if info == "boxes":
                 scaled_info = c_true * boxes_tensor.unsqueeze(0)
             elif info == "rel_matrix":
-                scaled_info = c_true * prob_matrix.unsqueeze(0)
+                joint_activation = concept_labels.unsqueeze(2) * concept_labels.unsqueeze(1)
+                scaled_info = joint_activation * prob_matrix.unsqueeze(0)
             elif info == 'concepts':
                 scaled_info = c_true
 
@@ -157,6 +162,10 @@ def train_cbm_classifier(
                 labels = labels.to(device).long().view(-1) - 1
                 concept_labels = class_concept_matrix[labels].float()
 
+                if ablation:
+                    indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
+                    concept_labels = concept_labels[:, indices_to_keep]
+
                 if smoothing_logic:
                     concept_labels = apply_logical_smoothing(concept_labels, prob_matrix, alpha)
 
@@ -168,7 +177,8 @@ def train_cbm_classifier(
                 if info == "boxes":
                     scaled_info = c_true * boxes_tensor.unsqueeze(0)
                 elif info == "rel_matrix":
-                    scaled_info = c_true * prob_matrix.unsqueeze(0)
+                    joint_activation = concept_labels.unsqueeze(2) * concept_labels.unsqueeze(1)
+                    scaled_info = joint_activation * prob_matrix.unsqueeze(0)
                 elif info == 'concepts':
                     scaled_info = c_true
                 
@@ -337,7 +347,7 @@ def sequential_training(
                 c_probs, _ = concept_predictor(features)
 
                 if logical_smoothing:
-                    concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha=0.5)
+                    concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
                 else:
                     concept_preds = c_probs
 

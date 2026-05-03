@@ -8,12 +8,13 @@ from networkx.drawing.nx_pydot import graphviz_layout
 import seaborn as sns
 import pandas as pd
 import json
+from itertools import combinations
 
 import os, sys
 # assicurati che la cartella del progetto sia nella ricerca dei moduli
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__),'..')))
 
-from utils.dataset import classical_split_awa2_features
+from src.utils.dataset import classical_split_awa2_features
 
 NOISY_CONCEPTS = {
     # 1. Sensi, fisicità astratta e cinematica (Non deducibili in modo affidabile da una foto statica)
@@ -95,6 +96,11 @@ def build_wordnet_hierarchy(concepts):
         'walks': 'foot',
         'leg': 'lower_body_part',
         'flippers': 'swims',
+        'buckteeth_part_1': 'buckteeth',
+        'buckteeth_part_2': 'buckteeth',
+        'buckteeth_part_3': 'buckteeth',
+        'buckteeth_part_4': 'buckteeth',
+        'buckteeth_part_5': 'buckteeth',
     }
 
     # 2. Blacklist dei nodi rumorosi di WordNet
@@ -112,8 +118,17 @@ def build_wordnet_hierarchy(concepts):
         'water_sport', 'sport', 'locomotion', 'motion',
     }
 
-    for concept in concepts:
-        G.add_node(concept)
+    # Uniamo i concetti originali con tutte le chiavi del CUSTOM_MAPPING
+    # per assicurarci di processare nodi come 'buckteeth_part' anche se assenti da `concepts`
+    all_starting_nodes = set(concepts).union(CUSTOM_MAPPING.keys())
+
+    for concept in all_starting_nodes:
+        # Se è una chiave custom NON presente tra i concetti originali, aggiungiamola all'espansione
+        if concept not in concepts:
+            new_parents_set.add(concept)
+
+        if not G.has_node(concept):
+            G.add_node(concept)
         
         # --- FASE 1: CONTROLLO OVERRIDE MANUALE (Con supporto Catene) ---
         if concept in CUSTOM_MAPPING:
@@ -126,7 +141,10 @@ def build_wordnet_hierarchy(concepts):
                 parent_name = CUSTOM_MAPPING[current_node]
                 
                 G.add_edge(parent_name, current_node)
-                new_parents_set.add(parent_name)
+                
+                # Se il padre non è tra i concetti base, lo segnamo come nodo di espansione
+                if parent_name not in concepts:
+                    new_parents_set.add(parent_name)
                 
                 current_node = parent_name
                 
@@ -161,7 +179,9 @@ def build_wordnet_hierarchy(concepts):
                     break
                     
                 G.add_edge(parent_name, previous_node)
-                new_parents_set.add(parent_name)
+                
+                if parent_name not in concepts:
+                    new_parents_set.add(parent_name)
                 
                 previous_node = parent_name
                 current_depth += 1
@@ -276,41 +296,24 @@ def compute_conditional_probabilities(G):
 
     return df_cond
 
-import numpy as np
-import pandas as pd
-
 def compute_empirical_matrix(train_incidence, train_labels, concept_names):
     """
     Calcola la matrice delle probabilità condizionate empiriche V_ij dai dati di training.
-    
-    Args:
-        train_incidence: np.array di shape (num_train_classes, num_concepts).
-                         Contiene 1 o 0.
-        train_labels: np.array o lista di shape (num_train_images,).
-                      Contiene l'ID della classe (da 0 a num_train_classes-1) per ogni immagine.
-        concept_names: lista di stringhe con i nomi dei concetti nell'ordine corretto.
     """
-
     # shiftamo train_labels da 1-based a 0-based se necessario
     if np.min(train_labels) == 1:
         train_labels = train_labels - 1
 
     # 1. Espandiamo la matrice di classe in una matrice a livello di singola immagine
-    # Shape risultante: (num_train_images, num_concepts)
     image_concept_matrix = train_incidence[train_labels]
     
     # 2. Calcoliamo le co-occorrenze (Numeratore)
-    # Moltiplicando la matrice trasposta per se stessa otteniamo una matrice (num_concepts x num_concepts)
-    # dove la cella (i, j) è esattamente il "Numero di immagini con c_i=1 e c_j=1"
     co_occurrences = image_concept_matrix.T @ image_concept_matrix
     
     # 3. Calcoliamo le frequenze marginali (Denominatore)
-    # Il "Numero di immagini con c_j=1" corrisponde alla diagonale della matrice di co-occorrenza
     freq_j = np.diag(co_occurrences)
     
     # 4. Calcoliamo V_ij applicando la formula
-    # V_ij = co_occurrences[i, j] / freq_j[j]
-    # Usiamo np.divide per gestire in sicurezza eventuali divisioni per zero (se un concetto non compare mai)
     V_ij = np.divide(
         co_occurrences, 
         freq_j, 
@@ -318,7 +321,6 @@ def compute_empirical_matrix(train_incidence, train_labels, concept_names):
         where=(freq_j != 0)
     )
     
-    # Restituiamo il DataFrame etichettato
     return pd.DataFrame(V_ij, index=concept_names, columns=concept_names)
 
 def fuse_probability_matrices(df_graph, df_data):
@@ -327,10 +329,8 @@ def fuse_probability_matrices(df_graph, df_data):
     usando l'operazione di Massimo.
     """
     print("Fusione delle matrici in corso (Max-Pooling semantico)...")
-    # np.maximum confronta i DataFrame cella per cella e tiene il valore più alto
     df_fused = np.maximum(df_graph, df_data)
     return df_fused
-
 
 
 def visualize_tree(G, original_concepts,output_file="gerarchia_concetti.pdf"):
@@ -356,8 +356,6 @@ def visualize_tree(G, original_concepts,output_file="gerarchia_concetti.pdf"):
     plt.savefig(output_file, format='pdf', bbox_inches='tight')
     print(f"Albero gerarchico salvato in: {output_file}")
 
-import networkx as nx
-from itertools import combinations
 
 def build_supervisions_from_graph(G):
     """
@@ -367,34 +365,26 @@ def build_supervisions_from_graph(G):
     supervisions = []
     
     # --- 1. Regole di INCLUSIONE (Probabilità = 1.0) ---
-    # Usiamo nx.descendants per prendere sia i figli diretti che i nipoti.
-    # Questo forza la rete a rispettare la gerarchia globale fin da subito.
     for parent in G.nodes():
         descendants = nx.descendants(G, parent)
         for child in descendants:
-            # Formato: (Target/Contenitore, Source/Contenuto, Probabilità)
             supervisions.append((parent, child, 1.0))
             
     # --- 2. Regole di DISGIUNZIONE (Probabilità = 0.0) ---
-    # Cerchiamo tutti i nodi che hanno lo stesso genitore (fratelli)
-    # e imponiamo che i loro box non si sovrappongano.
     for parent in G.nodes():
         children = list(G.successors(parent))
         
-        # Se ci sono almeno 2 figli, creiamo le coppie disgiunte simmetriche
         if len(children) > 1:
             for c1, c2 in combinations(children, 2):
                 supervisions.append((c1, c2, 0.0))
-                supervisions.append((c2, c1, 0.0)) # Regola simmetrica salva-vita!
+                supervisions.append((c2, c1, 0.0)) 
                 
-    # Rimuoviamo eventuali duplicati e ordiniamo per pulizia
     supervisions = sorted(list(set(supervisions)))
     
     return supervisions
 
 
 def numerical_supervision(textual_supervision, all_concepts):
-    # Creiamo il dizionario direttamente dalla lista in memoria!
     concept_to_idx = {c.lower(): i for i, c in enumerate(all_concepts)}
     
     supervisioni_numeriche = []
@@ -409,7 +399,6 @@ def numerical_supervision(textual_supervision, all_concepts):
         else:
             print(f"⚠️ Attenzione: '{target_str}' o '{source_str}' non trovato!")
 
-    import json
     with open("supervisioni_gerarchia_numeriche.json", "w") as f:
         json.dump(supervisioni_numeriche, f, indent=4)
         
@@ -426,7 +415,7 @@ def main():
     # 1. Carica i dati
     print("Caricamento dati...")
     original_concepts = load_awa2_concepts(args.concepts)
-    relevant_concepts = [c for c in original_concepts if c not in NOISY_CONCEPTS] # Filtriamo i concetti rumorosi prima di costruire la gerarchia
+    relevant_concepts = [c for c in original_concepts if c not in NOISY_CONCEPTS] 
     original_matrix = load_awa2_matrix(args.matrix)
 
     # filtriamo la matrice per tenere solo i concetti rilevanti (escludendo quelli rumorosi)
@@ -437,8 +426,8 @@ def main():
     labels_path = 'AwA2_Dataset_Features/Animals_with_Attributes2/Features/ResNet101/AwA2-labels.txt'
     
     (_, train_labels), _, _ = classical_split_awa2_features(
-        features_path,  # Non ci servono le feature per questo script
-        labels_path,    # Non ci servono le label complete, solo i train_labels
+        features_path, 
+        labels_path,    
         test_size=0.2,
         val_size=0.1,
         random_seed=42
@@ -469,8 +458,7 @@ def main():
 
     # --- 1. SALVATAGGIO IN JSON ---
     with open(nome_file_json, 'w') as f:
-        # json.dump prende la tua lista e la scrive direttamente nel file
-        json.dump(hierarchy_supervision, f, indent=4) # indent=4 lo rende leggibile e "a capo"
+        json.dump(hierarchy_supervision, f, indent=4) 
     
     # Salva la nuova matrice
     np.savetxt("AwA2_Dataset_Labels/Animals_with_Attributes2/extended_matrix.txt", new_matrix, fmt='%d')
@@ -490,13 +478,11 @@ def main():
     df_final = fuse_probability_matrices(df_graph, df_data)
 
     # --- SALVATAGGIO IN TXT ---
-    # Salviamo arrotondando a 4 decimali per leggibilità
     df_final.round(4).to_csv('AwA2_Dataset_Labels/Animals_with_Attributes2/V_gt.csv', sep='\t')
     print(f"Matrice salvata in testo in: AwA2_Dataset_Labels/Animals_with_Attributes2/V_gt.csv")
 
     # --- SALVATAGGIO IN PDF (Heatmap) ---
     plt.figure(figsize=(24, 20))
-    # Usiamo seaborn per una mappa di calore molto leggibile
     ax = sns.heatmap(df_final, cmap="YlGnBu", annot=False, fmt=".2f", 
                      cbar_kws={'label': 'P( x | y )'}, vmin=0.0, vmax=1.0)
     
@@ -504,7 +490,6 @@ def main():
     plt.ylabel("Concetto X (Dipendente)", fontsize=16)
     plt.xlabel("Concetto Y (Condizionante)", fontsize=16)
     
-    # Ruotiamo le etichette per renderle leggibili se ci sono tanti nodi
     plt.xticks(rotation=90, fontsize=8)
     plt.yticks(rotation=0, fontsize=8)
     

@@ -103,27 +103,42 @@ def calcola_matrice_probabilita(boxes_tensor):
     return prob_matrix
 
 
-def apply_logical_smoothing(c_pred, prob_matrix, alpha=0.5):
+import torch
+
+def apply_logical_smoothing(concept_labels, smoothing_matrix, threshold=0.5, ablation=False):
     """
-    Applica il Logical Smoothing per correggere le probabilità dei concetti
-    usando la matrice delle relazioni gerarchiche.
+    Applica lo smoothing logico ai concept_labels.
     
-    c_pred: shape (batch_size, num_concepts) - Le probabilità dalla CNN
-    prob_matrix: shape (num_concepts, num_concepts) - Matrice P(colonna | riga)
-    alpha: float tra 0 e 1. 
-           1.0 = Fiducia totale nella CNN (nessuna correzione)
-           0.0 = Fiducia totale nella logica della matrice
-           0.5 = Bilanciamento a metà
+    Args:
+        concept_labels: Tensore di shape [batch_size, num_concepts]
+        smoothing_matrix: Matrice di probabilità condizionate [num_concepts, num_concepts]
+                          Si assume che smoothing_matrix[i, j] rappresenti P(i|j).
+        threshold: Soglia oltre la quale considerare un concetto attivo (default 0.5).
+        
+    Returns:
+        smoothed_labels: Tensore della stessa shape di concept_labels con le correzioni.
     """
-    # 1. Calcoliamo i valori "attesi" secondo la logica (Prodotto Matriciale)
-    # Moltiplicare (batch, num_concepts) per (num_concepts, num_concepts)
-    # restituisce (batch, num_concepts)
-    c_expected = torch.matmul(c_pred, prob_matrix)
-    
-    # 2. Limitiamo le probabilità attese al range [0, 1]
-    c_expected = torch.clamp(c_expected, min=0.0, max=1.0)
-    
-    # 3. Interpolazione Lineare (Smoothing)
-    c_smoothed = (alpha * c_pred) + ((1.0 - alpha) * c_expected)
-    
-    return c_smoothed
+    if ablation:
+        indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
+        smoothing_matrix = smoothing_matrix[indices_to_keep][:, indices_to_keep]
+
+    # 1. Creiamo una maschera binaria dalla matrice di smoothing
+    # S_mask[i, j] sarà 1 se P(i|j) > 0.5, altrimenti 0
+    S_mask = (smoothing_matrix > threshold).float()
+
+    # 2. Capiamo quali concetti "j" sono attualmente attivi nel batch
+    # (utile soprattutto se in ingresso hai probabilità continue e non ancora binarie)
+    C_active = (concept_labels > threshold).float()
+
+    # 3. Calcoliamo i concetti da attivare tramite moltiplicazione tra matrici.
+    # Moltiplicando C_active [B, N] per la trasposta di S_mask [N, N],
+    # otteniamo una matrice [B, N] dove i valori > 0 indicano che c'è almeno 
+    # un concetto j attivo che "accende" il concetto i.
+    triggered_concepts = torch.matmul(C_active, S_mask.t()) > 0
+
+    # 4. Uniamo i concetti originali con quelli nuovi attivati.
+    # Usiamo torch.max: se un concetto era già alto, mantiene il suo valore.
+    # Se era basso ma è stato "triggerato" dalla regola, viene forzato a 1.0.
+    smoothed_labels = torch.max(concept_labels, triggered_concepts.float())
+
+    return smoothed_labels
