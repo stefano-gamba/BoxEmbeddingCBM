@@ -39,7 +39,8 @@ def test_cbm_classifier(
     all_preds = []
     all_labels = []
 
-    all_concept_preds = [] 
+    all_concept_preds = []
+    all_concept_probs = []
     all_concept_trues = []
     
     print("Inizio valutazione sul Test Set...")
@@ -72,6 +73,7 @@ def test_cbm_classifier(
             binary_preds = (concept_labels > 0.5).float() 
             all_concept_preds.extend(binary_preds.cpu().numpy())
             all_concept_trues.extend(true_concepts_batch.cpu().numpy())
+            all_concept_probs.extend(concept_labels.cpu().numpy())
 
             if bipolar:
                 concept_labels = concept_labels * 2 - 1
@@ -98,7 +100,7 @@ def test_cbm_classifier(
             
     accuracy = (test_correct / test_samples) * 100
     print(f"\nAccuratezza Totale: {accuracy:.2f}%")
-    return accuracy, np.array(all_preds), np.array(all_labels), np.array(all_concept_preds), np.array(all_concept_trues)
+    return accuracy, np.array(all_preds), np.array(all_labels), np.array(all_concept_preds), np.array(all_concept_trues), np.array(all_concept_probs)
 
 
 def test_sequential_cbm(

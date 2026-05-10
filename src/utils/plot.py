@@ -167,3 +167,50 @@ def analyze_misclassifications_concepts(preds, labels, concept_preds, concept_tr
                     print(f"  - [{c_name}] Falso Negativo: Doveva essere VERO, il modello ha detto FALSO.")
                 elif c_true_val == False and c_pred_val == True:
                     print(f"  - [{c_name}] Falso Positivo: Doveva essere FALSO, il modello ha detto VERO.")
+
+
+def plot_concept_uncertainty_heatmap(labels, concept_probs, class_names=None, concept_names=None, figsize=(15, 8)):
+    """
+    Visualizza una Heatmap dell'incertezza del modello.
+    Un valore vicino a 1 (scuro) indica che la probabilità media assegnata 
+    dal modello per quel concetto in quella classe è intorno a 0.5.
+    """
+    num_classes = len(np.unique(labels))
+    num_concepts = concept_probs.shape[1]
+    
+    # Matrice vuota per l'incertezza: (num_classes, num_concepts)
+    uncertainty_matrix = np.zeros((num_classes, num_concepts))
+    
+    # Calcoliamo lo score di incertezza per ogni singola predizione
+    # Formula: 1 - 2 * |p - 0.5|
+    uncertainty_scores = 1.0 - 2.0 * np.abs(concept_probs - 0.5)
+    
+    for c in range(num_classes):
+        # Troviamo tutti gli esempi appartenenti alla classe 'c'
+        idx = (labels == c)
+        if np.sum(idx) > 0:
+            # Calcoliamo l'incertezza media per ogni concetto per questa classe
+            uncertainty_matrix[c] = np.mean(uncertainty_scores[idx], axis=0)
+            
+    plt.figure(figsize=figsize)
+    
+    # Usiamo una palette viola per distinguerla da quella rossa degli errori
+    sns.heatmap(uncertainty_matrix, 
+                cmap="Purples", 
+                vmin=0.0, vmax=1.0, # Fissiamo la scala da 0 (Certo) a 1 (Incerto)
+                xticklabels=concept_names if concept_names else "auto", 
+                yticklabels=class_names if class_names else "auto")
+    
+    plt.title("Mappa dell'Incertezza: Concetti predetti vicini a 0.5", fontsize=15)
+    plt.ylabel('Classe Reale')
+    plt.xlabel('Concetti')
+    
+    if concept_names:
+        plt.xticks(rotation=90, ha='center')
+    if class_names:
+        plt.yticks(rotation=0)
+        
+    plt.tight_layout()
+    plt.show()
+    
+    return uncertainty_matrix
