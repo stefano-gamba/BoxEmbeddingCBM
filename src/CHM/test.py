@@ -1,6 +1,7 @@
 import torch
 from sklearn.metrics import classification_report
 from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing
+import numpy as np
 
 def test_cbm_classifier(
         model, 
@@ -37,6 +38,9 @@ def test_cbm_classifier(
     test_samples = 0
     all_preds = []
     all_labels = []
+
+    all_concept_preds = [] 
+    all_concept_trues = []
     
     print("Inizio valutazione sul Test Set...")
     
@@ -44,6 +48,7 @@ def test_cbm_classifier(
         for features, labels in test_dataloader:
             features = features.to(device)
             labels = labels.to(device).long().view(-1) - 1
+            true_concepts_batch = class_concept_matrix[labels].float()
             
             if oracle:
                 concept_labels = class_concept_matrix[labels].float()
@@ -54,6 +59,7 @@ def test_cbm_classifier(
             if ablation:
                 indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
                 concept_labels = concept_labels[:, indices_to_keep]
+                true_concepts_batch = true_concepts_batch[:, indices_to_keep]
 
             # --- APPLICAZIONE DELLO SMOOTHING E BINARIZZAZIONE ---
             if smoothing_logic:
@@ -61,6 +67,11 @@ def test_cbm_classifier(
                 concept_labels = apply_logical_smoothing(concept_labels, smoothing_matrix, alpha, ablation)
                 # Binarizziamo per non sconvolgere il layer lineare
                 concept_labels = (concept_labels > 0.5).float()
+            
+            # Assumendo che concept_labels sia continuo (es. probabilità), lo binarizziamo per l'analisi
+            binary_preds = (concept_labels > 0.5).float() 
+            all_concept_preds.extend(binary_preds.cpu().numpy())
+            all_concept_trues.extend(true_concepts_batch.cpu().numpy())
 
             if bipolar:
                 concept_labels = concept_labels * 2 - 1
@@ -87,7 +98,7 @@ def test_cbm_classifier(
             
     accuracy = (test_correct / test_samples) * 100
     print(f"\nAccuratezza Totale: {accuracy:.2f}%")
-    return accuracy, all_preds, all_labels
+    return accuracy, np.array(all_preds), np.array(all_labels), np.array(all_concept_preds), np.array(all_concept_trues)
 
 
 def test_sequential_cbm(

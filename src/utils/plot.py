@@ -87,3 +87,83 @@ def plot_test_results(accuracy, preds, labels, class_names=None, figsize=(12, 10
             sorted_errors = sorted(error_counts.items(), key=lambda x: x[1], reverse=True)
             for (real, pred), count in sorted_errors[:5]: # Mostriamo i primi 5
                 print(f" - {count} volte: '{real}' è stato scambiato per '{pred}'")
+
+
+def plot_concept_error_heatmap(labels, concept_preds, concept_trues, class_names=None, concept_names=None, figsize=(15, 8)):
+    """
+    Visualizza una Heatmap dove le righe sono le classi e le colonne i concetti.
+    Il colore indica la percentuale di errore (0 = sempre giusto, 1 = sempre sbagliato).
+    """
+    num_classes = len(np.unique(labels))
+    num_concepts = concept_preds.shape[1]
+    
+    # Matrice vuota per gli errori: (num_classes, num_concepts)
+    error_matrix = np.zeros((num_classes, num_concepts))
+    
+    # Calcoliamo se la predizione del concetto è sbagliata (1 = Errore, 0 = Corretto)
+    concept_errors = (concept_preds != concept_trues).astype(float)
+    
+    for c in range(num_classes):
+        # Troviamo tutti gli esempi appartenenti alla classe 'c'
+        idx = (labels == c)
+        if np.sum(idx) > 0:
+            # Calcoliamo l'errore medio per ogni concetto per questa classe
+            error_matrix[c] = np.mean(concept_errors[idx], axis=0)
+            
+    plt.figure(figsize=figsize)
+    sns.heatmap(error_matrix, 
+                cmap="Reds",  # Rosso = più errori
+                xticklabels=concept_names if concept_names else "auto", 
+                yticklabels=class_names if class_names else "auto")
+    
+    plt.title("Tasso di Errore dei Concetti per Classe", fontsize=15)
+    plt.ylabel('Classe')
+    plt.xlabel('Concetti')
+    
+    if concept_names:
+        plt.xticks(rotation=90, ha='center')
+    if class_names:
+        plt.yticks(rotation=0)
+        
+    plt.tight_layout()
+    plt.show()
+
+def analyze_misclassifications_concepts(preds, labels, concept_preds, concept_trues, class_names, concept_names, num_examples=3):
+    """
+    Prende esempi in cui la classe è stata predetta male e mostra quali concetti
+    hanno causato l'errore.
+    """
+    # Trova gli indici in cui il task finale ha fallito
+    error_indices = np.where(preds != labels)[0]
+    
+    if len(error_indices) == 0:
+        print("Nessun errore! Modello perfetto.")
+        return
+        
+    print(f"\n--- ANALISI DEI CONCETTI SUGLI ERRORI (Mostrando {min(num_examples, len(error_indices))} esempi) ---")
+    
+    # Prendiamo i primi N errori
+    for i, idx in enumerate(error_indices[:num_examples]):
+        real_class = class_names[labels[idx]] if class_names else labels[idx]
+        pred_class = class_names[preds[idx]] if class_names else preds[idx]
+        
+        print(f"\n[Esempio Errato #{i+1} - Indice Batch: {idx}]")
+        print(f"Classe Reale: '{real_class}' ---> Classe Predetta: '{pred_class}'")
+        print("Concetti Sbagliati (Falsi Positivi / Falsi Negativi):")
+        
+        # Quali concetti ha sbagliato per questo specifico esempio?
+        wrong_concepts_idx = np.where(concept_preds[idx] != concept_trues[idx])[0]
+        
+        if len(wrong_concepts_idx) == 0:
+            print("  -> STRANO: Ha predetto tutti i concetti perfettamente, ma ha sbagliato la classe finale!")
+            print("  -> Questo suggerisce un problema nel layer finale (Bottleneck non puro o pesi mal calibrati).")
+        else:
+            for c_idx in wrong_concepts_idx:
+                c_name = concept_names[c_idx] if concept_names else f"Concetto_{c_idx}"
+                c_true_val = bool(concept_trues[idx][c_idx])
+                c_pred_val = bool(concept_preds[idx][c_idx])
+                
+                if c_true_val == True and c_pred_val == False:
+                    print(f"  - [{c_name}] Falso Negativo: Doveva essere VERO, il modello ha detto FALSO.")
+                elif c_true_val == False and c_pred_val == True:
+                    print(f"  - [{c_name}] Falso Positivo: Doveva essere FALSO, il modello ha detto VERO.")
