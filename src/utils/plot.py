@@ -4,6 +4,8 @@ import seaborn as sns
 import numpy as np
 from sklearn.metrics import confusion_matrix
 
+from src.CHM.test import test_cbm_classifier
+
 def plot_history(history):
     epochs = range(1, len(history['train']['tot_loss']) + 1)
     
@@ -214,3 +216,63 @@ def plot_concept_uncertainty_heatmap(labels, concept_probs, class_names=None, co
     plt.show()
     
     return uncertainty_matrix
+
+def plot_intervention_curve(
+        k_values, 
+        model, 
+        test_loader, 
+        class_concept_matrix, 
+        boxes_tensor,
+        device="cpu",
+        info="boxes",
+        concept_predictor=None
+):
+    results_random = []
+    results_uncertain = []
+    results_random_feedback = []
+    results_uncertain_feedback = []
+
+    for k in k_values:
+        print(f"\n--- Valutazione con k={k} interventi ---")
+        
+        # Test Intervento Casuale
+        acc_random, _, _, _, _, _ = test_cbm_classifier(
+            model, test_loader, class_concept_matrix, boxes_tensor, device=device,
+            intervention_strategy="random", k_interventions=k, info=info, concept_predictor=concept_predictor
+        )
+        results_random.append(acc_random)
+        
+        # Test Intervento Incertezza (Spesso ha performance migliori all'inizio!)
+        acc_uncertain, _, _, _, _, _ = test_cbm_classifier(
+            model, test_loader, class_concept_matrix, boxes_tensor, device=device,
+            intervention_strategy="uncertain", k_interventions=k, info=info, concept_predictor=concept_predictor
+        )
+        results_uncertain.append(acc_uncertain)
+
+        acc_random_feedback, _, _, _, _, _ = test_cbm_classifier(
+            model, test_loader, class_concept_matrix, boxes_tensor, device=device,
+            intervention_strategy="random", k_interventions=k, info=info, concept_predictor=concept_predictor,
+            smoothing_logic=True
+        )
+        results_random_feedback.append(acc_random_feedback)
+
+        acc_uncertain_feedback, _, _, _, _, _ = test_cbm_classifier(
+            model, test_loader, class_concept_matrix, boxes_tensor, device=device,
+            intervention_strategy="uncertain", k_interventions=k, info=info, concept_predictor=concept_predictor,
+            smoothing_logic=True
+        )
+        results_uncertain_feedback.append(acc_uncertain_feedback)
+
+    # Plot dei risultati
+    plt.figure(figsize=(10, 6))
+    plt.plot(k_values, results_random, marker='o', label='Intervento Casuale')
+    plt.plot(k_values, results_uncertain, marker='s', label='Intervento su Incertezza')
+    plt.plot(k_values, results_random_feedback, marker='^', label='Intervento Casuale con Feedback')
+    plt.plot(k_values, results_uncertain_feedback, marker='v', label='Intervento su Incertezza con Feedback')
+
+    plt.title('Test Time Intervention Curve')
+    plt.xlabel('Numero di Concetti Corretti (k)')
+    plt.ylabel('Accuratezza del Classificatore (%)')
+    plt.grid(True)
+    plt.legend()
+    plt.show()

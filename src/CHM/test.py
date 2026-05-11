@@ -3,6 +3,8 @@ from sklearn.metrics import classification_report
 from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing
 import numpy as np
 
+from src.utils.intervention import generate_intervention_mask
+
 def test_cbm_classifier(
         model, 
         test_dataloader, 
@@ -16,6 +18,9 @@ def test_cbm_classifier(
         smoothing_logic=False,
         alpha=0.1, # <-- Tienilo basso per dare peso alla matrice
         ablation=False,
+        intervention_strategy=None, # "random", "uncertain", "group" o None
+        k_interventions=5,          
+        group_indices=None
     ):
     
     model.eval()
@@ -56,6 +61,20 @@ def test_cbm_classifier(
             else:
                 with torch.no_grad():
                     concept_labels, _  = concept_predictor(features)
+
+            
+            if intervention_strategy is not None:
+                # 1. Genera la maschera dinamicamente per questo batch
+                mask = generate_intervention_mask(
+                    concept_probs=concept_labels, 
+                    strategy=intervention_strategy, 
+                    k=k_interventions,
+                    group_indices=group_indices
+                )
+                
+                # 2. Applica l'intervento
+                # c_final = (predetto * non_intervenuti) + (reale * intervenuti)
+                concept_labels = (concept_labels * (1 - mask)) + (true_concepts_batch * mask)
 
             if ablation:
                 indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
