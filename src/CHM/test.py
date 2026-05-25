@@ -16,7 +16,7 @@ def test_cbm_classifier(
         oracle=False,
         concept_predictor=None,
         smoothing_logic=False,
-        alpha=0.1, # <-- Tienilo basso per dare peso alla matrice
+        alpha=0.5, 
         ablation=False,
         intervention_strategy=None, # "random", "uncertain", "group" o None
         k_interventions=5,          

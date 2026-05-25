@@ -103,8 +103,6 @@ def calcola_matrice_probabilita(boxes_tensor):
     return prob_matrix
 
 
-import torch
-
 def apply_logical_smoothing(concept_labels, smoothing_matrix, threshold=0.5, ablation=False):
     """
     Applica lo smoothing logico ai concept_labels.

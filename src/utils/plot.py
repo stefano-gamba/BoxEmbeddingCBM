@@ -252,14 +252,14 @@ def plot_intervention_curve(
         acc_random_feedback, _, _, _, _, _ = test_cbm_classifier(
             model, test_loader, class_concept_matrix, boxes_tensor, device=device,
             intervention_strategy="random", k_interventions=k, info=info, concept_predictor=concept_predictor,
-            smoothing_logic=True
+            smoothing_logic=True, alpha=0.8
         )
         results_random_feedback.append(acc_random_feedback)
 
         acc_uncertain_feedback, _, _, _, _, _ = test_cbm_classifier(
             model, test_loader, class_concept_matrix, boxes_tensor, device=device,
             intervention_strategy="uncertain", k_interventions=k, info=info, concept_predictor=concept_predictor,
-            smoothing_logic=True
+            smoothing_logic=True, alpha=0.8
         )
         results_uncertain_feedback.append(acc_uncertain_feedback)
 
