@@ -103,7 +103,7 @@ def calcola_matrice_probabilita(boxes_tensor):
     return prob_matrix
 
 
-def apply_logical_smoothing(concept_labels, smoothing_matrix, threshold=0.5, ablation=False):
+def apply_logical_smoothing(concept_labels, smoothing_matrix, threshold=0.5):
     """
     Applica lo smoothing logico ai concept_labels.
     
@@ -116,9 +116,6 @@ def apply_logical_smoothing(concept_labels, smoothing_matrix, threshold=0.5, abl
     Returns:
         smoothed_labels: Tensore della stessa shape di concept_labels con le correzioni.
     """
-    if ablation:
-        indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
-        smoothing_matrix = smoothing_matrix[indices_to_keep][:, indices_to_keep]
 
     # 1. Creiamo una maschera binaria dalla matrice di smoothing
     # S_mask[i, j] sarà 1 se P(i|j) > 0.5, altrimenti 0

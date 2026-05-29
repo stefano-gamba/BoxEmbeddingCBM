@@ -17,7 +17,6 @@ def test_cbm_classifier(
         concept_predictor=None,
         smoothing_logic=False,
         alpha=0.5, 
-        ablation=False,
         intervention_strategy=None, # "random", "uncertain", "group" o None
         k_interventions=5,          
         group_indices=None
@@ -76,15 +75,10 @@ def test_cbm_classifier(
                 # c_final = (predetto * non_intervenuti) + (reale * intervenuti)
                 concept_labels = (concept_labels * (1 - mask)) + (true_concepts_batch * mask)
 
-            if ablation:
-                indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
-                concept_labels = concept_labels[:, indices_to_keep]
-                true_concepts_batch = true_concepts_batch[:, indices_to_keep]
-
             # --- APPLICAZIONE DELLO SMOOTHING E BINARIZZAZIONE ---
             if smoothing_logic:
                 # Usiamo smoothing_matrix (con diagonale a 1)
-                concept_labels = apply_logical_smoothing(concept_labels, smoothing_matrix, alpha, ablation)
+                concept_labels = apply_logical_smoothing(concept_labels, smoothing_matrix, alpha)
                 # Binarizziamo per non sconvolgere il layer lineare
                 concept_labels = (concept_labels > 0.5).float()
             

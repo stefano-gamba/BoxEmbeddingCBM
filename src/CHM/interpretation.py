@@ -19,7 +19,6 @@ def explain_prediction(
         concept_predictor=None,
         logical_smoothing=False,
         alpha=0.5,
-        ablation=False,
     ):
     """
     Spiega la predizione del modello visualizzando un grafico a barre dei contributi.
@@ -91,12 +90,8 @@ def explain_prediction(
             concept_base = concept_gt_original
 
 
-        if ablation:
-            indices_to_keep = [i for i in range(55) if i not in [39,40,41,42,43]]
-            concept_base = concept_base[indices_to_keep]
-
         if logical_smoothing:
-            concept_base = apply_logical_smoothing(concept_base, prob_matrix, alpha, ablation).squeeze(0) # shape: (num_concepts,)
+            concept_base = apply_logical_smoothing(concept_base, prob_matrix, alpha).squeeze(0) # shape: (num_concepts,)
 
         # Applichiamo la trasformazione bipolare se richiesta [0, 1] -> [-1, 1]
         if bipolar:
