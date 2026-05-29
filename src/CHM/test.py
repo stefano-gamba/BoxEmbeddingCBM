@@ -222,3 +222,36 @@ def test_sequential_cbm(
         print(classification_report(all_labels, all_preds, labels=labels_to_print, zero_division=0))
     
     return accuracy, all_preds, all_labels
+
+def test_joint_cbm(
+        classifier, 
+        concept_predictor, 
+        test_dataloader, 
+        boxes_tensor,
+        class_concept_matrix=None, 
+        device="cpu",
+        info="boxes",
+        bipolar=False,
+        logical_smoothing=False,
+        alpha=0.5,
+):
+    """
+    La fase di test del Joint CBM è strutturalmente identica al test Sequential: 
+    le feature passano dal Concept Predictor per ottenere i concetti predetti, 
+    che vengono poi mascherati ai box embedding per la classificazione finale.
+    """
+    print("\nInizio valutazione sul Test Set (Modalità Joint)...")
+    
+    # Poiché la logica è identica a inference time, riutilizziamo la funzione sequenziale
+    return test_sequential_cbm(
+        classifier=classifier,
+        concept_predictor=concept_predictor,
+        test_dataloader=test_dataloader,
+        boxes_tensor=boxes_tensor,
+        class_concept_matrix=class_concept_matrix,
+        device=device,
+        info=info,
+        bipolar=bipolar,
+        logical_smoothing=logical_smoothing,
+        alpha=alpha
+    )

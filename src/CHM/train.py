@@ -4,6 +4,7 @@ from torch.optim import Adam
 from src.CHM.model import BoxHierarchyModel
 from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing
 from src.CP.train import train_concept_predictor
+import torch.nn.functional as F
 
 def train_box(
         model: BoxHierarchyModel,
@@ -384,3 +385,186 @@ def sequential_training(
 
     print("\nAddestramento Sequenziale completato.")
     return history_concept, history_cls
+
+def hierarchical_concept_loss(c_probs, prob_matrix):
+    """
+    Calcola la loss gerarchica basata sui box embedding statici.
+    
+    Args:
+        c_probs: Tensore (batch_size, num_concepts) con le probabilità predette.
+        prob_matrix: Tensore (num_concepts, num_concepts) dove [i, j] = P(c_i | c_j).
+    """
+    # Espandiamo c_probs per calcolare tutte le coppie (c_j - c_i)
+    # c_j avrà shape (batch, 1, num_concepts)
+    # c_i avrà shape (batch, num_concepts, 1)
+    c_j = c_probs.unsqueeze(1) 
+    c_i = c_probs.unsqueeze(2) 
+    
+    # diff[batch, i, j] = c_probs[batch, j] - c_probs[batch, i]
+    diff = c_j - c_i
+    
+    # Penalizziamo solo quando c_j > c_i (violazione logica)
+    violation = F.relu(diff) ** 2
+    
+    # Moltiplichiamo per P(c_i | c_j). 
+    # prob_matrix.unsqueeze(0) assicura il corretto broadcasting sul batch.
+    weighted_violation = prob_matrix.unsqueeze(0) * violation
+    
+    # Media sul batch e somma su tutte le coppie di concetti
+    return weighted_violation.sum(dim=(1, 2)).mean()
+
+def joint_training(
+        classifier, 
+        concept_predictor, 
+        train_loader, 
+        val_loader, 
+        class_concept_matrix, 
+        boxes_tensor,
+        optimizer, # Ottimizzatore combinato: Adam(list(cls.parameters()) + list(cp.parameters()))
+        criterion_cls,
+        criterion_concept,
+        epochs, 
+        device,
+        lambda_c=1.0, # Peso della loss sui concetti 
+        gamma_h=0.5,  # Peso della loss gerarchica (box embeddings)
+        info="boxes",
+        bipolar=False,
+        logical_smoothing=False,
+        alpha=0.5,
+):
+    print("\n========== Addestramento Joint CBM (con Logica Gerarchica) ==========")
+    
+    classifier.to(device)
+    concept_predictor.to(device)
+    boxes_tensor = boxes_tensor.to(device)
+
+    # La matrice di probabilità è statica (calcolata dai box embeddings pre-addestrati)
+    with torch.no_grad():
+        prob_matrix = calcola_matrice_probabilita(boxes_tensor).to(device)
+        model_prob_matrix = prob_matrix.clone()
+        if not logical_smoothing:
+            model_prob_matrix.fill_diagonal_(0.0)
+            
+    history = {
+        'train': {'tot_loss': [], 'cls_loss': [], 'c_loss': [], 'h_loss': [], 'acc': []},
+        'val':   {'tot_loss': [], 'acc': []}
+    }
+
+    for epoch in range(1, epochs + 1):
+        classifier.train()
+        concept_predictor.train()
+        
+        train_tot_loss, train_correct, train_samples = 0.0, 0, 0
+        
+        for features, labels in train_loader:
+            features = features.to(device)
+            labels = labels.to(device).long().view(-1) - 1 
+            c_gt = class_concept_matrix[labels].float().to(device)
+
+            optimizer.zero_grad()
+            
+            # 1. Forward del Concept Predictor
+            c_probs, c_logits = concept_predictor(features)
+            
+            # Calcolo delle Loss Intermedie
+            loss_c = criterion_concept(c_logits, c_gt)
+            loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
+
+            # 2. Modulazione per l'input al Classificatore
+            if logical_smoothing:
+                concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
+            else:
+                concept_preds = c_probs
+
+            if bipolar:
+                concept_preds = concept_preds * 2 - 1
+            
+            c_pred_expanded = concept_preds.unsqueeze(-1)
+            
+            # 3. Mascheramento Soft (Scaling) con i box embedding
+            if info == "boxes":
+                scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
+            elif info == "rel_matrix":
+                joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
+                scaled_info = joint_activation * model_prob_matrix.unsqueeze(0)
+            elif info == 'concepts':
+                scaled_info = c_pred_expanded
+            elif info == 'all':
+                joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
+                scaled_info = (c_pred_expanded, joint_activation * model_prob_matrix.unsqueeze(0))
+
+            # 4. Forward del Classificatore e calcolo Loss Totale
+            logits = classifier(scaled_info)
+            loss_y = criterion_cls(logits, labels)
+            
+            # Loss Totale = Task + lambda * Concept + gamma * Hierarchical
+            loss = loss_y + (lambda_c * loss_c) + (gamma_h * loss_h)
+            
+            loss.backward()
+            optimizer.step()
+            
+            train_tot_loss += loss.item()
+            preds = torch.argmax(logits, dim=1)
+            train_correct += (preds == labels).sum().item()
+            train_samples += labels.size(0)
+        
+        # --- Validation ---
+        classifier.eval()
+        concept_predictor.eval()
+        val_loss, val_correct, val_samples = 0.0, 0, 0
+        
+        with torch.no_grad():
+            for features, labels in val_loader:
+                features = features.to(device)
+                labels = labels.to(device).long().view(-1) - 1
+                c_gt = class_concept_matrix[labels].float().to(device)
+                
+                c_probs, c_logits = concept_predictor(features)
+                loss_c = criterion_concept(c_logits, c_gt)
+                loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
+
+                if logical_smoothing:
+                    concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
+                else:
+                    concept_preds = c_probs
+
+                if bipolar:
+                    concept_preds = concept_preds * 2 - 1
+                
+                c_pred_expanded = concept_preds.unsqueeze(-1)
+
+                if info == "boxes":
+                    scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
+                elif info == "rel_matrix":
+                    joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
+                    scaled_info = joint_activation * model_prob_matrix.unsqueeze(0)
+                elif info == 'concepts':
+                    scaled_info = c_pred_expanded
+                elif info == 'all':
+                    joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
+                    scaled_info = (c_pred_expanded, joint_activation * model_prob_matrix.unsqueeze(0))
+                
+                logits = classifier(scaled_info)
+                loss_y = criterion_cls(logits, labels)
+                
+                loss = loss_y + (lambda_c * loss_c) + (gamma_h * loss_h)
+                val_loss += loss.item()
+                
+                preds = torch.argmax(logits, dim=1)
+                val_correct += (preds == labels).sum().item()
+                val_samples += labels.size(0)
+                
+        # Logging e Statistiche
+        t_batches = len(train_loader)
+        v_batches = len(val_loader)
+        
+        history['train']['tot_loss'].append(train_tot_loss / t_batches)
+        history['train']['acc'].append(train_correct / train_samples)
+        history['val']['tot_loss'].append(val_loss / v_batches)
+        history['val']['acc'].append(val_correct / val_samples)
+
+        print(f"Epoca {epoch:3d}/{epochs} | "
+              f"TRAIN: Loss={history['train']['tot_loss'][-1]:.3f}, Acc={history['train']['acc'][-1]*100:.1f}% | "
+              f"VAL: Loss={history['val']['tot_loss'][-1]:.3f}, Acc={history['val']['acc'][-1]*100:.1f}%")
+
+    return history
