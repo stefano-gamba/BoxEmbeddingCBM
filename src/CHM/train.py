@@ -394,13 +394,14 @@ def joint_training(
         val_loader, 
         class_concept_matrix, 
         boxes_tensor,
-        optimizer, # Ottimizzatore combinato: Adam(list(cls.parameters()) + list(cp.parameters()))
+        optimizer, 
         criterion_cls,
-        criterion_concept,
+        # criterion_concept, # <-- Rimosso, usiamo direttamente la nostra weighted_concept_loss
+        concept_heights,     # <-- AGGIUNTO: serve per calcolare i pesi della W-BCE
         epochs, 
         device,
-        lambda_c=1.0, # Peso della loss sui concetti 
-        gamma_h=0.5,  # Peso della loss gerarchica (box embeddings)
+        lambda_c=1.0, 
+        gamma_h=0.5,  
         info="boxes",
         bipolar=False,
         logical_smoothing=False,
@@ -419,9 +420,10 @@ def joint_training(
         if not logical_smoothing:
             model_prob_matrix.fill_diagonal_(0.0)
             
+    # AGGIUNTO: Struttura history espansa per il validation set
     history = {
         'train': {'tot_loss': [], 'cls_loss': [], 'c_loss': [], 'h_loss': [], 'acc': []},
-        'val':   {'tot_loss': [], 'acc': []}
+        'val':   {'tot_loss': [], 'cls_loss': [], 'c_loss': [], 'h_loss': [], 'acc': []} 
     }
 
     concept_weights = compute_hierarchical_weights(concept_heights, alpha=0.2, device=device)
@@ -430,7 +432,9 @@ def joint_training(
         classifier.train()
         concept_predictor.train()
         
-        train_tot_loss, train_correct, train_samples = 0.0, 0, 0
+        # AGGIUNTO: Accumulatori separati per il training
+        train_tot_loss, train_cls_loss, train_c_loss, train_h_loss = 0.0, 0.0, 0.0, 0.0
+        train_correct, train_samples = 0, 0
         
         for features, labels in train_loader:
             features = features.to(device)
@@ -479,7 +483,12 @@ def joint_training(
             loss.backward()
             optimizer.step()
             
+            # AGGIUNTO: Aggiornamento degli accumulatori
+            train_cls_loss += loss_y.item()
+            train_c_loss   += loss_c.item()
+            train_h_loss   += loss_h.item()
             train_tot_loss += loss.item()
+            
             preds = torch.argmax(logits, dim=1)
             train_correct += (preds == labels).sum().item()
             train_samples += labels.size(0)
@@ -487,7 +496,10 @@ def joint_training(
         # --- Validation ---
         classifier.eval()
         concept_predictor.eval()
-        val_loss, val_correct, val_samples = 0.0, 0, 0
+        
+        # AGGIUNTO: Accumulatori separati per la validazione
+        val_tot_loss, val_cls_loss, val_c_loss, val_h_loss = 0.0, 0.0, 0.0, 0.0
+        val_correct, val_samples = 0, 0
         
         with torch.no_grad():
             for features, labels in val_loader:
@@ -524,7 +536,12 @@ def joint_training(
                 loss_y = criterion_cls(logits, labels)
                 
                 loss = loss_y + (lambda_c * loss_c) + (gamma_h * loss_h)
-                val_loss += loss.item()
+                
+                # AGGIUNTO: Aggiornamento accumulatori validazione
+                val_cls_loss += loss_y.item()
+                val_c_loss   += loss_c.item()
+                val_h_loss   += loss_h.item()
+                val_tot_loss += loss.item()
                 
                 preds = torch.argmax(logits, dim=1)
                 val_correct += (preds == labels).sum().item()
@@ -534,13 +551,22 @@ def joint_training(
         t_batches = len(train_loader)
         v_batches = len(val_loader)
         
+        # AGGIUNTO: Salvataggio in history di tutte le metriche
         history['train']['tot_loss'].append(train_tot_loss / t_batches)
+        history['train']['cls_loss'].append(train_cls_loss / t_batches)
+        history['train']['c_loss'].append(train_c_loss / t_batches)
+        history['train']['h_loss'].append(train_h_loss / t_batches)
         history['train']['acc'].append(train_correct / train_samples)
-        history['val']['tot_loss'].append(val_loss / v_batches)
+        
+        history['val']['tot_loss'].append(val_tot_loss / v_batches)
+        history['val']['cls_loss'].append(val_cls_loss / v_batches)
+        history['val']['c_loss'].append(val_c_loss / v_batches)
+        history['val']['h_loss'].append(val_h_loss / v_batches)
         history['val']['acc'].append(val_correct / val_samples)
 
-        print(f"Epoca {epoch:3d}/{epochs} | "
-              f"TRAIN: Loss={history['train']['tot_loss'][-1]:.3f}, Acc={history['train']['acc'][-1]*100:.1f}% | "
-              f"VAL: Loss={history['val']['tot_loss'][-1]:.3f}, Acc={history['val']['acc'][-1]*100:.1f}%")
+        # AGGIUNTO: Print dettagliato per monitorare le scale delle singole loss
+        print(f"Epoca {epoch:3d}/{epochs} | Acc Train: {history['train']['acc'][-1]*100:.1f}% | Acc Val: {history['val']['acc'][-1]*100:.1f}%")
+        print(f"  TRAIN -> Tot: {history['train']['tot_loss'][-1]:.4f} [Cls: {history['train']['cls_loss'][-1]:.4f} | C: {history['train']['c_loss'][-1]:.4f} | H: {history['train']['h_loss'][-1]:.4f}]")
+        print(f"  VAL   -> Tot: {history['val']['tot_loss'][-1]:.4f} [Cls: {history['val']['cls_loss'][-1]:.4f} | C: {history['val']['c_loss'][-1]:.4f} | H: {history['val']['h_loss'][-1]:.4f}]\n")
 
     return history
