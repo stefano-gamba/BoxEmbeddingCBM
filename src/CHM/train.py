@@ -4,7 +4,8 @@ from torch.optim import Adam
 from src.CHM.model import BoxHierarchyModel
 from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing
 from src.CP.train import train_concept_predictor
-import torch.nn.functional as F
+from src.CHM.loss import hierarchical_concept_loss, compute_hierarchical_weights, weighted_concept_loss
+
 
 def train_box(
         model: BoxHierarchyModel,
@@ -386,33 +387,6 @@ def sequential_training(
     print("\nAddestramento Sequenziale completato.")
     return history_concept, history_cls
 
-def hierarchical_concept_loss(c_probs, prob_matrix):
-    """
-    Calcola la loss gerarchica basata sui box embedding statici.
-    
-    Args:
-        c_probs: Tensore (batch_size, num_concepts) con le probabilità predette.
-        prob_matrix: Tensore (num_concepts, num_concepts) dove [i, j] = P(c_i | c_j).
-    """
-    # Espandiamo c_probs per calcolare tutte le coppie (c_j - c_i)
-    # c_j avrà shape (batch, 1, num_concepts)
-    # c_i avrà shape (batch, num_concepts, 1)
-    c_j = c_probs.unsqueeze(1) 
-    c_i = c_probs.unsqueeze(2) 
-    
-    # diff[batch, i, j] = c_probs[batch, j] - c_probs[batch, i]
-    diff = c_j - c_i
-    
-    # Penalizziamo solo quando c_j > c_i (violazione logica)
-    violation = F.relu(diff) ** 2
-    
-    # Moltiplichiamo per P(c_i | c_j). 
-    # prob_matrix.unsqueeze(0) assicura il corretto broadcasting sul batch.
-    weighted_violation = prob_matrix.unsqueeze(0) * violation
-    
-    # Media sul batch e somma su tutte le coppie di concetti
-    return weighted_violation.sum(dim=(1, 2)).mean()
-
 def joint_training(
         classifier, 
         concept_predictor, 
@@ -450,6 +424,8 @@ def joint_training(
         'val':   {'tot_loss': [], 'acc': []}
     }
 
+    concept_weights = compute_hierarchical_weights(concept_heights, alpha=0.2, device=device)
+
     for epoch in range(1, epochs + 1):
         classifier.train()
         concept_predictor.train()
@@ -467,7 +443,7 @@ def joint_training(
             c_probs, c_logits = concept_predictor(features)
             
             # Calcolo delle Loss Intermedie
-            loss_c = criterion_concept(c_logits, c_gt)
+            loss_c = weighted_concept_loss(c_logits, c_gt, concept_weights)
             loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
 
             # 2. Modulazione per l'input al Classificatore
@@ -520,7 +496,7 @@ def joint_training(
                 c_gt = class_concept_matrix[labels].float().to(device)
                 
                 c_probs, c_logits = concept_predictor(features)
-                loss_c = criterion_concept(c_logits, c_gt)
+                loss_c = weighted_concept_loss(c_logits, c_gt, concept_weights)
                 loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
 
                 if logical_smoothing:
