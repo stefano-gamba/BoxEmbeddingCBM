@@ -2,6 +2,7 @@ import torch
 from box_embeddings.parameterizations import MinDeltaBoxTensor, BoxTensor
 from box_embeddings.modules.intersection import HardIntersection
 from box_embeddings.modules.volume import SoftVolume
+import numpy as np
 
 def get_box_dict(model, id2concept):
     """
@@ -184,3 +185,60 @@ def calculate_concept_heights(concept2id, relations_json):
         concept_heights[c_id] = compute_height(concept)
         
     return concept_heights
+
+def compute_stratified_concept_accuracy(all_preds_binary, all_gts, concept_heights):
+    """
+    Calcola l'accuratezza dei concetti divisa per livello gerarchico (altezza).
+    
+    Args:
+        all_preds_binary (np.ndarray o torch.Tensor): Predizioni binarie (N_samples, N_concepts)
+        all_gts (np.ndarray o torch.Tensor): Ground truth (N_samples, N_concepts)
+        concept_heights (list o np.ndarray): Altezze pre-calcolate dei concetti (len = N_concepts)
+        
+    Returns:
+        dict: Dizionario con l'accuratezza per ogni livello di altezza.
+    """
+    # Assicuriamoci di lavorare con numpy array per l'indicizzazione
+    if torch.is_tensor(all_preds_binary):
+        all_preds_binary = all_preds_binary.cpu().numpy()
+    if torch.is_tensor(all_gts):
+        all_gts = all_gts.cpu().numpy()
+        
+    heights_arr = np.array(concept_heights)
+    unique_heights = np.unique(heights_arr)
+    
+    stratified_results = {}
+    
+    print("\n=== Accuratezza Concetti Stratificata per Altezza ===")
+    
+    # Iteriamo dall'alto verso il basso (es. dalla radice alle foglie)
+    for h in sorted(unique_heights, reverse=True):
+        # 1. Trova gli indici dei concetti che si trovano a questa specifica altezza
+        indices = np.where(heights_arr == h)[0]
+        
+        if len(indices) == 0:
+            continue
+            
+        # 2. Estrai solo le colonne corrispondenti a questi concetti
+        preds_h = all_preds_binary[:, indices]
+        gts_h = all_gts[:, indices]
+        
+        # 3. Calcola l'accuratezza aggregata per questo gruppo
+        correct = (preds_h == gts_h).sum()
+        total_elements = preds_h.size # (numero di campioni) * (numero di concetti a questa altezza)
+        
+        accuracy = (correct / total_elements) * 100
+        
+        stratified_results[h] = {
+            'accuracy': accuracy,
+            'num_concepts': len(indices)
+        }
+        
+        print(f"Livello {h:2d} (Padri/Radici)" if h == max(unique_heights) else 
+              f"Livello {h:2d} (Foglie/Micro)" if h == min(unique_heights) else 
+              f"Livello {h:2d}", end=" ")
+        
+        print(f"| N. Concetti: {len(indices):3d} | Accuratezza: {accuracy:.2f}%")
+        
+    print("=====================================================\n")
+    return stratified_results
