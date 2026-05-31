@@ -137,3 +137,50 @@ def apply_logical_smoothing(concept_labels, smoothing_matrix, threshold=0.5):
     smoothed_labels = torch.max(concept_labels, triggered_concepts.float())
 
     return smoothed_labels
+
+def calculate_concept_heights(concept2id, relations_json):
+    """
+    Calcola l'altezza di ciascun concetto basandosi sulle relazioni di implicazione.
+    
+    Args:
+        concept2id: Dizionario {nome_concetto: id_vettore}
+        relations_json: Lista di tuple/liste es. [['mano', 'dito', 1], ['animale', 'cane', 1]]
+    
+    Returns:
+        Lista di interi 'concept_heights' ordinata secondo gli ID di concept2id.
+    """
+    # 1. Inizializziamo una struttura per mappare ogni padre ai suoi figli diretti
+    parent_to_children = {concept: [] for concept in concept2id}
+    
+    # 2. Popoliamo il grafo invertito (da padre a figli) usando solo le implicazioni (valore 1)
+    for parent, child, is_implied in relations_json:
+        if is_implied == 1:
+            if parent in parent_to_children and child in parent_to_children:
+                parent_to_children[parent].append(child)
+    
+    # 3. Funzione ricorsiva con memoizzazione per calcolare l'altezza di un singolo nodo
+    memo = {}
+    
+    def compute_height(node):
+        if node in memo:
+            return memo[node]
+        
+        children = parent_to_children[node]
+        # Se il nodo non ha figli, è una foglia della gerarchia -> altezza = 0
+        if not children:
+            memo[node] = 0
+            return 0
+        
+        # Altrimenti, l'altezza è 1 + la massima altezza tra i suoi figli
+        height = 1 + max(compute_height(child) for child in children)
+        memo[node] = height
+        return height
+
+    # 4. Creiamo il vettore finale allocando gli spazi in base al numero di concetti
+    concept_heights = [0] * len(concept2id)
+    
+    # 5. Riempiamo il vettore assicurandoci di rispettare l'id associato a ogni concetto
+    for concept, c_id in concept2id.items():
+        concept_heights[c_id] = compute_height(concept)
+        
+    return concept_heights

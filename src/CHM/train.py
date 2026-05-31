@@ -396,8 +396,7 @@ def joint_training(
         boxes_tensor,
         optimizer, 
         criterion_cls,
-        # criterion_concept, # <-- Rimosso, usiamo direttamente la nostra weighted_concept_loss
-        concept_heights,     # <-- AGGIUNTO: serve per calcolare i pesi della W-BCE
+        concept_heights,
         epochs, 
         device,
         lambda_c=1.0, 

@@ -121,7 +121,7 @@ def test_sequential_cbm(
         concept_predictor, 
         test_dataloader, 
         boxes_tensor,
-        class_concept_matrix=None, # Opzionale, utile solo se vuoi stampare il report o calcolare la concept accuracy
+        class_concept_matrix=None,
         device="cpu",
         info="boxes",
         bipolar=False,
@@ -143,6 +143,10 @@ def test_sequential_cbm(
     classifier.to(device)
     concept_predictor.to(device)
     boxes_tensor = boxes_tensor.to(device)
+    
+    # Portiamo anche la matrice dei concetti sul device, se fornita
+    if class_concept_matrix is not None:
+        class_concept_matrix = class_concept_matrix.to(device)
 
     # Pre-calcolo della matrice di probabilità (se richiesta)
     if info == "rel_matrix" or info == "all" or logical_smoothing:
@@ -158,11 +162,20 @@ def test_sequential_cbm(
     all_preds = []
     all_labels = []
     
+    all_concept_preds = []
+    all_concept_probs = []
+    all_concept_trues = []
+    
     with torch.no_grad():
         for features, labels in test_dataloader:
             features = features.to(device)
             # Portiamo le classi a 0-indexed
             labels = labels.to(device).long().view(-1) - 1
+            
+            # Recupero della Ground Truth dei concetti
+            if class_concept_matrix is not None:
+                true_concepts_batch = class_concept_matrix[labels].float()
+                all_concept_trues.extend(true_concepts_batch.cpu().numpy())
             
             # -------------------------------------------------------------
             # STEP 1: h -> c_pred (Estrazione dei concetti predetti)
@@ -173,6 +186,11 @@ def test_sequential_cbm(
                 concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
             else:
                 concept_preds = c_probs
+                
+            # --- SALVATAGGIO PROBABILITÀ E PREDIZIONI BINARIE (Prima del bipolar) ---
+            binary_preds = (concept_preds > 0.5).float()
+            all_concept_probs.extend(concept_preds.cpu().numpy())
+            all_concept_preds.extend(binary_preds.cpu().numpy())
             
             if bipolar:
                 # Scaliamo le probabilità [0, 1] in [-1, 1]
@@ -221,7 +239,14 @@ def test_sequential_cbm(
         labels_to_print = list(range(min(10, class_concept_matrix.size(0))))
         print(classification_report(all_labels, all_preds, labels=labels_to_print, zero_division=0))
     
-    return accuracy, all_preds, all_labels
+    return (
+        accuracy, 
+        np.array(all_preds), 
+        np.array(all_labels), 
+        np.array(all_concept_preds), 
+        np.array(all_concept_trues) if class_concept_matrix is not None else np.array([]), 
+        np.array(all_concept_probs)
+    )
 
 def test_joint_cbm(
         classifier, 
