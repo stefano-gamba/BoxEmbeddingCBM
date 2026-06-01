@@ -186,19 +186,20 @@ def calculate_concept_heights(concept2id, relations_json):
         
     return concept_heights
 
-def compute_stratified_concept_accuracy(all_preds_binary, all_gts, concept_heights):
+def compute_stratified_concept_accuracy(all_preds_binary, all_gts, concept_heights, id2concept):
     """
-    Calcola l'accuratezza dei concetti divisa per livello gerarchico (altezza).
+    Calcola l'accuratezza dei concetti divisa per livello gerarchico (altezza),
+    stampando il dettaglio di ogni singolo concetto ordinato per accuratezza.
     
     Args:
         all_preds_binary (np.ndarray o torch.Tensor): Predizioni binarie (N_samples, N_concepts)
         all_gts (np.ndarray o torch.Tensor): Ground truth (N_samples, N_concepts)
         concept_heights (list o np.ndarray): Altezze pre-calcolate dei concetti (len = N_concepts)
+        id2concept (dict): Dizionario che mappa l'ID (int) al nome del concetto (str)
         
     Returns:
-        dict: Dizionario con l'accuratezza per ogni livello di altezza.
+        dict: Dizionario con l'accuratezza per ogni livello di altezza e il dettaglio dei concetti.
     """
-    # Assicuriamoci di lavorare con numpy array per l'indicizzazione
     if torch.is_tensor(all_preds_binary):
         all_preds_binary = all_preds_binary.cpu().numpy()
     if torch.is_tensor(all_gts):
@@ -206,39 +207,59 @@ def compute_stratified_concept_accuracy(all_preds_binary, all_gts, concept_heigh
         
     heights_arr = np.array(concept_heights)
     unique_heights = np.unique(heights_arr)
+    num_samples = all_preds_binary.shape[0]
     
     stratified_results = {}
     
-    print("\n=== Accuratezza Concetti Stratificata per Altezza ===")
+    print("\n" + "="*60)
+    print(" ACCURATEZZA CONCETTI STRATIFICATA PER ALTEZZA")
+    print("="*60)
     
-    # Iteriamo dall'alto verso il basso (es. dalla radice alle foglie)
     for h in sorted(unique_heights, reverse=True):
-        # 1. Trova gli indici dei concetti che si trovano a questa specifica altezza
+        # 1. Trova gli indici dei concetti a questa altezza
         indices = np.where(heights_arr == h)[0]
         
         if len(indices) == 0:
             continue
             
-        # 2. Estrai solo le colonne corrispondenti a questi concetti
+        # 2. Estrai le sottomatrici per questo livello
         preds_h = all_preds_binary[:, indices]
         gts_h = all_gts[:, indices]
         
-        # 3. Calcola l'accuratezza aggregata per questo gruppo
-        correct = (preds_h == gts_h).sum()
-        total_elements = preds_h.size # (numero di campioni) * (numero di concetti a questa altezza)
+        # 3. Calcola l'accuratezza globale del livello
+        correct_total = (preds_h == gts_h).sum()
+        accuracy_level = (correct_total / preds_h.size) * 100
         
-        accuracy = (correct / total_elements) * 100
+        # 4. Calcola l'accuratezza per OGNI SINGOLO concetto (colonna per colonna)
+        # sum(axis=0) conta i True per ogni colonna
+        correct_per_concept = (preds_h == gts_h).sum(axis=0) 
+        acc_per_concept = (correct_per_concept / num_samples) * 100
+        
+        # 5. Raccogliamo i risultati in una lista di tuple (nome, accuratezza)
+        concept_details = []
+        for i, concept_idx in enumerate(indices):
+            concept_name = id2concept[concept_idx]
+            concept_details.append((concept_name, acc_per_concept[i]))
+            
+        # Ordiniamo dal peggiore al migliore per evidenziare i concetti problematici
+        concept_details.sort(key=lambda x: x[1])
         
         stratified_results[h] = {
-            'accuracy': accuracy,
-            'num_concepts': len(indices)
+            'accuracy': accuracy_level,
+            'num_concepts': len(indices),
+            'details': concept_details
         }
         
-        print(f"Livello {h:2d} (Padri/Radici)" if h == max(unique_heights) else 
-              f"Livello {h:2d} (Foglie/Micro)" if h == min(unique_heights) else 
-              f"Livello {h:2d}", end=" ")
+        # --- STAMPA FORMATTATA ---
+        level_name = "Padri/Radici" if h == max(unique_heights) else "Foglie/Micro" if h == min(unique_heights) else "Intermedio"
+        print(f"\n► Livello {h:2d} ({level_name}) | N. Concetti: {len(indices)} | Acc. Media: {accuracy_level:.2f}%")
+        print("-" * 60)
         
-        print(f"| N. Concetti: {len(indices):3d} | Accuratezza: {accuracy:.2f}%")
-        
-    print("=====================================================\n")
+        # Stampiamo i concetti incolonnati
+        for nome, acc in concept_details:
+            # Un piccolo alert visivo se l'accuratezza è sotto una certa soglia (es. 85%)
+            alert = " <--- LEAKAGE SOSPETTO" if acc < 85.0 else ""
+            print(f"    {nome:<25} : {acc:6.2f}% {alert}")
+            
+    print("\n" + "="*60 + "\n")
     return stratified_results
