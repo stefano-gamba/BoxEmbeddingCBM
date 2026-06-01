@@ -5,6 +5,8 @@ from src.CHM.model import BoxHierarchyModel
 from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing
 from src.CP.train import train_concept_predictor
 from src.CHM.loss import hierarchical_concept_loss, compute_hierarchical_weights, weighted_concept_loss
+from src.utils.dataset import ConceptImplicationDataset
+from torch.utils.data import DataLoader
 
 
 def train_box(
@@ -57,6 +59,60 @@ def train_box(
             p = model(torch.tensor([i]), torch.tensor([j])).item()
             print(f"Relazione: {id2concept[i]} | {id2concept[j]}")
             print(f" - P_teorica: {target:.1f} -> P_predetta: {p:.4f}")
+
+def train_box_empirical(model, ground_truth_matrix, optimizer, criterion, epochs=100, batch_size=256):
+    # Setup del device (GPU se disponibile)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    ground_truth_matrix = ground_truth_matrix.to(device)
+    
+    # Inizializza Dataset e DataLoader
+    dataset = ConceptImplicationDataset(ground_truth_matrix)
+    # Se il numero di concetti è piccolo (es. 50x50 = 2500 coppie), 
+    # puoi anche omettere il dataloader e processare tutto in un batch,
+    # ma il DataLoader è la best practice.
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    
+    model.train()
+    
+    for epoch in range(epochs):
+        total_loss = 0.0
+        
+        for batch_i, batch_j, batch_targets in dataloader:
+            # Sposta i dati sul device corretto
+            batch_i = batch_i.to(device)
+            batch_j = batch_j.to(device)
+            batch_targets = batch_targets.to(device)
+            
+            # 1. Azzera i gradienti
+            optimizer.zero_grad()
+            
+            # 2. Forward pass: calcola le probabilità previste
+            predictions = model(batch_i, batch_j)
+            
+            # Assicurati che predictions e targets abbiano la stessa forma (1D)
+            predictions = predictions.squeeze()
+            
+            # 3. Calcola la loss
+            loss = criterion(predictions, batch_targets)
+            
+            # 4. Backward pass (calcola gradienti)
+            loss.backward()
+            
+            # 5. Aggiorna i pesi
+            optimizer.step()
+            
+            total_loss += loss.item() * batch_i.size(0)
+            
+        # Calcola la loss media dell'epoca
+        avg_loss = total_loss / len(dataset)
+        
+        # Stampa i progressi ogni 10 epoche
+        if (epoch + 1) % 10 == 0 or epoch == 0:
+            print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f}")
+
+    print("Addestramento completato!")
+    return model
 
 
 def train_cbm_classifier(

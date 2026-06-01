@@ -263,3 +263,48 @@ def compute_stratified_concept_accuracy(all_preds_binary, all_gts, concept_heigh
             
     print("\n" + "="*60 + "\n")
     return stratified_results
+
+import torch
+
+def compute_concept_implications(y_train, class_concept_matrix):
+    """
+    Calcola la matrice di probabilità condizionate P(c_i | c_j) in puro PyTorch.
+    """
+    # 0. Controlli di sicurezza sui tipi
+    if not isinstance(y_train, torch.Tensor):
+        y_train = torch.tensor(y_train)
+    
+    if not isinstance(class_concept_matrix, torch.Tensor):
+        class_concept_matrix = torch.tensor(class_concept_matrix, dtype=torch.float32)
+    else:
+        # Assicuriamoci che sia float per le moltiplicazioni di probabilità
+        class_concept_matrix = class_concept_matrix.float()
+
+    if y_train.min() > 0:
+        y_train = y_train - y_train.min()
+
+    num_classes, num_concepts = class_concept_matrix.shape
+
+    # 1. Calcola P(y)
+    # torch.bincount richiede tensori interi 1D (long)
+    class_counts = torch.bincount(y_train.long(), minlength=num_classes)
+    P_y = class_counts.float() / len(y_train)
+
+    # 2. Calcola P(c_j)
+    P_c = P_y @ class_concept_matrix
+
+    # 3. Calcola P(c_i, c_j)
+    P_y_diag = torch.diag(P_y)
+    P_ij = class_concept_matrix.T @ P_y_diag @ class_concept_matrix
+
+    # 4. Calcola P(c_i | c_j) = P(c_i, c_j) / P(c_j)
+    P_i_given_j = torch.zeros_like(P_ij)
+    
+    # Maschera booleana per evitare la divisione per zero
+    mask = P_c > 0 
+    
+    # Eseguiamo la divisione solo sulle colonne (concetti j) dove P(c_j) > 0.
+    # unsqueeze(0) serve per trasmettere (broadcast) correttamente la divisione sulle righe.
+    P_i_given_j[:, mask] = P_ij[:, mask] / P_c[mask].unsqueeze(0)
+
+    return P_i_given_j

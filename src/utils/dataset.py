@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 
 def zsl_split_awa2_features(features_path, labels_path, classes_path, 
                                  train_split_path, val_split_path, test_split_path):
@@ -94,3 +97,28 @@ def classical_split_awa2_features(features_path, labels_path, test_size=0.2, val
     print(f"Test set:       {X_test.shape[0]} campioni")
     
     return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+
+class ConceptImplicationDataset(Dataset):
+    def __init__(self, ground_truth_matrix):
+        """
+        ground_truth_matrix: Tensore 2D di shape (num_concepts, num_concepts)
+        """
+        self.num_concepts = ground_truth_matrix.shape[0]
+        
+        # Creiamo tutte le combinazioni possibili di indici (i, j)
+        i_indices, j_indices = torch.meshgrid(
+            torch.arange(self.num_concepts), 
+            torch.arange(self.num_concepts), 
+            indexing='ij'
+        )
+        
+        # Appiattiamo le matrici in vettori 1D
+        self.idx_i = i_indices.flatten()
+        self.idx_j = j_indices.flatten()
+        self.targets = ground_truth_matrix.flatten()
+
+    def __len__(self):
+        return len(self.targets)
+
+    def __getitem__(self, idx):
+        return self.idx_i[idx], self.idx_j[idx], self.targets[idx]
