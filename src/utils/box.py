@@ -3,6 +3,7 @@ from box_embeddings.parameterizations import MinDeltaBoxTensor, BoxTensor
 from box_embeddings.modules.intersection import HardIntersection
 from box_embeddings.modules.volume import SoftVolume
 import numpy as np
+import networkx as nx
 
 def get_box_dict(model, id2concept):
     """
@@ -308,3 +309,41 @@ def compute_concept_implications(y_train, class_concept_matrix):
     P_i_given_j[:, mask] = P_ij[:, mask] / P_c[mask].unsqueeze(0)
 
     return P_i_given_j
+
+
+def extract_hierarchy(model, num_concepts, concept_names, threshold=0.85):
+    model.eval()
+    
+    idx_i, idx_j = torch.meshgrid(torch.arange(num_concepts), torch.arange(num_concepts), indexing='ij')
+    
+    with torch.no_grad():
+        probabilities = model(idx_i.flatten(), idx_j.flatten())
+        P_matrix = probabilities.view(num_concepts, num_concepts).cpu().numpy()
+
+    G = nx.DiGraph()
+    
+    for i in range(num_concepts):
+        G.add_node(i, label=concept_names[i])
+        
+    for i in range(num_concepts):
+        for j in range(num_concepts):
+            # 1. Controlliamo la soglia
+            if i != j and P_matrix[i, j] > threshold:
+                
+                # 2. Spezziamo i cicli
+                # Aggiungiamo l'arco solo se la direzione j -> i è più forte di i -> j
+                if P_matrix[i, j] > P_matrix[j, i]:
+                    G.add_edge(j, i, weight=P_matrix[i, j])
+                
+                # 3. Gestione del caso limite estremo (probabilità identiche)
+                elif P_matrix[i, j] == P_matrix[j, i]:
+                    # Usiamo l'ordine alfabetico o numerico per spezzare un pareggio esatto
+                    if i > j: 
+                        G.add_edge(j, i, weight=P_matrix[i, j])
+
+    # Ora il grafo è garantito per essere un DAG (Directed Acyclic Graph)
+    G_reduced = nx.transitive_reduction(G)
+    nx.set_node_attributes(G_reduced, nx.get_node_attributes(G, 'label'), 'label')
+    
+    return G_reduced
+

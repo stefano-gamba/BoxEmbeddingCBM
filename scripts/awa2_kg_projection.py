@@ -18,25 +18,25 @@ from src.utils.dataset import classical_split_awa2_features
 
 NOISY_CONCEPTS = {
     # 1. Sensi, fisicità astratta e cinematica (Non deducibili in modo affidabile da una foto statica)
-    'smelly', 'fast', 'slow', 'strong', 'weak', 'muscle', 'agility',
+    #'smelly', 'fast', 'slow', 'strong', 'weak', 'muscle', 'agility',
     
     # 2. Comportamento, temperamento e abitudini sociali
-    'active', 'inactive', 'nocturnal', 'hibernate', 'fierce', 'timid', 
-    'smart', 'group', 'solitary', 'tunnels',
+    #'active', 'inactive', 'nocturnal', 'hibernate', 'fierce', 'timid', 
+    #'smart', 'group', 'solitary', 'tunnels',
     
     # 3. Dieta e ruoli alimentari (Causerebbero allucinazioni nell'apprendimento)
-    'fish', 'meat', 'plankton', 'vegetation', 'insects', 
-    'forager', 'grazer', 'hunter', 'scavenger', 'skimmer', 'stalker',
+    #'fish', 'meat', 'plankton', 'vegetation', 'insects', 
+    #'forager', 'grazer', 'hunter', 'scavenger', 'skimmer', 'stalker',
     
     # 4. Habitat, geografia e background (Forzerebbero la rete a ignorare l'animale per guardare lo sfondo)
-    'newworld', 'oldworld', 'arctic', 'coastal', 'desert', 'bush', 
-    'plains', 'forest', 'fields', 'jungle', 'mountains', 'ocean', 
-    'ground', 'water', 'tree', 'cave', 'nestspot',
+    #'newworld', 'oldworld', 'arctic', 'coastal', 'desert', 'bush', 
+    #'plains', 'forest', 'fields', 'jungle', 'mountains', 'ocean', 
+    #'ground', 'water', 'tree', 'cave', 'nestspot',
     
     # 5. Concetti relazionali/umani
-    'domestic',
+    #'domestic',
 
-    'swims'
+    #'swims'
 }
 
 def load_awa2_concepts(filepath):
@@ -96,11 +96,6 @@ def build_wordnet_hierarchy(concepts):
         'walks': 'foot',
         'leg': 'lower_body_part',
         'flippers': 'swims',
-        'buckteeth_part_1': 'buckteeth',
-        'buckteeth_part_2': 'buckteeth',
-        'buckteeth_part_3': 'buckteeth',
-        'buckteeth_part_4': 'buckteeth',
-        'buckteeth_part_5': 'buckteeth',
     }
 
     # 2. Blacklist dei nodi rumorosi di WordNet
@@ -115,7 +110,14 @@ def build_wordnet_hierarchy(concepts):
         'noise_maker', 'device', 'guardianship', 'duty', 'body_part', 'person', 'causal_agent',
         'marking', 'design', 'symptom', 'evidence', 'badge', 'emblem', 'position',
         'animal_material', 'dentine', 'dipterous_insect', 'insect', 'vine', 'vascular_plant',
-        'water_sport', 'sport', 'locomotion', 'motion',
+        'water_sport', 'sport', 'locomotion', 'motion', 'nestspot', 'abstinence', 'agent',
+        'binary_compound', 'body_of_water', 'carriage', 'change_magnitude', 'chemical_agent',
+        'climatic_zone', 'collection', 'comedian', 'compound', 'confinement', 'decrease',
+        'food', 'geographical_area', 'geological_formation', 'literate', 'living_thing',
+        'location', 'natural_elevation', 'organ', 'organism', 'pain', 'passage',
+        'passageway', 'pedestrian', 'people', 'performer', 'reader', 'rest', 'self-denial',
+        'servant', 'skilled_worker', 'sleep', 'solid', 'subjugation', 'thing', 'tract', 'traveler',
+        'woody_plant'
     }
 
     # Uniamo i concetti originali con tutte le chiavi del CUSTOM_MAPPING
