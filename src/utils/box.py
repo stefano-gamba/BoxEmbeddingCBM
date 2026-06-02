@@ -140,6 +140,47 @@ def apply_logical_smoothing(concept_labels, smoothing_matrix, threshold=0.5):
 
     return smoothed_labels
 
+import torch
+
+def apply_soft_logical_smoothing(concept_labels, smoothing_matrix, alpha=0.3):
+    """
+    Applica uno smoothing logico morbido senza distruggere i gradienti.
+    
+    Args:
+        concept_labels: Tensore [batch_size, num_concepts] (probabilità tra 0 e 1)
+        smoothing_matrix: Tensore [num_concepts, num_concepts] (P(i|j))
+        alpha: Peso dell'influenza logica. 0.0 = usa le predizioni originali, 
+               1.0 = affidati totalmente alla logica. (default 0.3)
+               
+    Returns:
+        smoothed_labels: Tensore [batch_size, num_concepts] (probabilità tra 0 e 1)
+    """
+    # Assicuriamoci che i concetti siano tra 0 e 1 (per evitare instabilità)
+    concept_labels = torch.clamp(concept_labels, 1e-6, 1.0 - 1e-6)
+    
+    # 1. Calcoliamo l'evidenza logica propagata da TUTTI i concetti.
+    # Moltiplichiamo le probabilità [B, N] per la matrice di probabilità [N, N].
+    # Il risultato [B, N] rappresenta la probabilità di ogni concetto i,
+    # se ci basassimo unicamente su ciò che i concetti j suggeriscono.
+    # Usiamo la trasposta per allinearci a P(i|j).
+    logical_evidence = torch.matmul(concept_labels, smoothing_matrix.t())
+    
+    # 2. Dato che la moltiplicazione somma le probabilità, i valori possono superare 1.0.
+    # Dobbiamo normalizzarli. Dividiamo per la somma dei pesi di influenza (quanti j influenzano i).
+    # Aggiungiamo epsilon per evitare la divisione per zero.
+    normalization_factor = torch.sum(smoothing_matrix.t(), dim=1, keepdim=True) + 1e-6
+    logical_evidence_normalized = logical_evidence / normalization_factor.squeeze()
+    
+    # 3. Intersecazione (Residual Connection Morbida).
+    # Uniamo la predizione della rete neurale (vista) con l'evidenza logica (dedotta).
+    # Usiamo un parametro alpha per pesare l'intervento logico.
+    smoothed_labels = (1 - alpha) * concept_labels + (alpha) * logical_evidence_normalized
+    
+    # 4. Clamp finale per sicurezza
+    smoothed_labels = torch.clamp(smoothed_labels, 0.0, 1.0)
+    
+    return smoothed_labels
+
 def calculate_concept_heights(concept2id, relations_json):
     """
     Calcola l'altezza di ciascun concetto basandosi sulle relazioni di implicazione.
