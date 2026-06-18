@@ -4,6 +4,7 @@ from box_embeddings.modules.intersection import HardIntersection
 from box_embeddings.modules.volume import SoftVolume
 import numpy as np
 import networkx as nx
+import pandas as pd
 
 def get_box_dict(model, id2concept):
     """
@@ -388,3 +389,56 @@ def extract_hierarchy(model, num_concepts, concept_names, threshold=0.85):
     
     return G_reduced
 
+
+def calculate_empirical_cooccurrences_OAI(df: pd.DataFrame, concept_columns: list, thresholds: list = [1.0, 2.0, 3.0]) -> pd.DataFrame:
+    """
+    Calcola la matrice delle probabilità condizionate P(B|A) per i concetti clinici.
+    
+    Args:
+        df: DataFrame Pandas contenente i dati di training.
+        concept_columns: Lista delle colonne corrispondenti ai 10 concetti OAI.
+        thresholds: I gradi di severità usati come soglie logiche. Di default 1.0, 2.0, 3.0
+                    (assumendo 4 classi totali [0, 1, 2, 3]).
+                    
+    Returns:
+        Un DataFrame Pandas M_x_M dove l'elemento in riga A e colonna B rappresenta P(B|A).
+    """
+    # 1. Generiamo i "Nodi Logici" (es. 'xrjsm_>=1.0')
+    nodes = []
+    for col in concept_columns:
+        for th in thresholds:
+            nodes.append((col, th))
+            
+    # Inizializziamo la matrice vuota
+    n_nodes = len(nodes)
+    prob_matrix = pd.DataFrame(np.zeros((n_nodes, n_nodes)), 
+                               index=[f"{c}_>={t}" for c, t in nodes], 
+                               columns=[f"{c}_>={t}" for c, t in nodes])
+    
+    # 2. Calcolo vettorizzato delle co-occorrenze
+    for i, (col_A, th_A) in enumerate(nodes):
+        # A_is_active è una maschera booleana (True se il grado supera la soglia)
+        # I NaN restituiscono automaticamente False in valutazioni come >=
+        A_is_active = df[col_A] >= th_A
+        
+        for j, (col_B, th_B) in enumerate(nodes):
+            # L'universo dei dati validi per questa coppia: 
+            # I pazienti che hanno sicuramente A, e di cui conosciamo lo stato di B (non è NaN)
+            valid_universe_mask = A_is_active & df[col_B].notna()
+            
+            # Il denominatore: Quanti pazienti validi hanno il sintomo A?
+            count_A = valid_universe_mask.sum()
+            
+            if count_A == 0:
+                # Nessun paziente ha il sintomo A (o mancano i dati per B), probabilità indefinita
+                prob_matrix.iloc[i, j] = 0.0
+                continue
+                
+            # Il numeratore: Tra i pazienti calcolati sopra, quanti superano la soglia B?
+            B_is_active = df[col_B] >= th_B
+            count_A_and_B = (valid_universe_mask & B_is_active).sum()
+            
+            # Calcolo P(B|A)
+            prob_matrix.iloc[i, j] = count_A_and_B / count_A
+
+    return prob_matrix
