@@ -392,53 +392,39 @@ def extract_hierarchy(model, num_concepts, concept_names, threshold=0.85):
 
 def calculate_empirical_cooccurrences_OAI(df: pd.DataFrame, concept_columns: list, thresholds: list = [1.0, 2.0, 3.0]) -> pd.DataFrame:
     """
-    Calcola la matrice delle probabilità condizionate P(B|A) per i concetti clinici.
-    
-    Args:
-        df: DataFrame Pandas contenente i dati di training.
-        concept_columns: Lista delle colonne corrispondenti ai 10 concetti OAI.
-        thresholds: I gradi di severità usati come soglie logiche. Di default 1.0, 2.0, 3.0
-                    (assumendo 4 classi totali [0, 1, 2, 3]).
-                    
-    Returns:
-        Un DataFrame Pandas M_x_M dove l'elemento in riga A e colonna B rappresenta P(B|A).
+    Calcola la matrice delle probabilità condizionate P(i|j) per i concetti clinici.
+    L'elemento [i, j] rappresenta la probabilità del concetto in riga (i) dato il concetto in colonna (j).
     """
-    # 1. Generiamo i "Nodi Logici" (es. 'xrjsm_>=1.0')
     nodes = []
     for col in concept_columns:
         for th in thresholds:
             nodes.append((col, th))
             
-    # Inizializziamo la matrice vuota
     n_nodes = len(nodes)
     prob_matrix = pd.DataFrame(np.zeros((n_nodes, n_nodes)), 
                                index=[f"{c}_>={t}" for c, t in nodes], 
                                columns=[f"{c}_>={t}" for c, t in nodes])
     
-    # 2. Calcolo vettorizzato delle co-occorrenze
-    for i, (col_A, th_A) in enumerate(nodes):
-        # A_is_active è una maschera booleana (True se il grado supera la soglia)
-        # I NaN restituiscono automaticamente False in valutazioni come >=
-        A_is_active = df[col_A] >= th_A
+    # Inversione della logica condizionale: j (colonna) diventa la condizione "data"
+    for j, (col_j, th_j) in enumerate(nodes):
+        # j_is_active è l'evento noto (Denominatore)
+        j_is_active = df[col_j] >= th_j
         
-        for j, (col_B, th_B) in enumerate(nodes):
-            # L'universo dei dati validi per questa coppia: 
-            # I pazienti che hanno sicuramente A, e di cui conosciamo lo stato di B (non è NaN)
-            valid_universe_mask = A_is_active & df[col_B].notna()
+        for i, (col_i, th_i) in enumerate(nodes):
+            # Universo valido: pazienti che hanno sicuramente j e di cui conosciamo i
+            valid_universe_mask = j_is_active & df[col_i].notna()
             
-            # Il denominatore: Quanti pazienti validi hanno il sintomo A?
-            count_A = valid_universe_mask.sum()
+            count_j = valid_universe_mask.sum()
             
-            if count_A == 0:
-                # Nessun paziente ha il sintomo A (o mancano i dati per B), probabilità indefinita
+            if count_j == 0:
                 prob_matrix.iloc[i, j] = 0.0
                 continue
                 
-            # Il numeratore: Tra i pazienti calcolati sopra, quanti superano la soglia B?
-            B_is_active = df[col_B] >= th_B
-            count_A_and_B = (valid_universe_mask & B_is_active).sum()
+            # Numeratore: tra i pazienti validi (che hanno j), quanti hanno anche i?
+            i_is_active = df[col_i] >= th_i
+            count_i_and_j = (valid_universe_mask & i_is_active).sum()
             
-            # Calcolo P(B|A)
-            prob_matrix.iloc[i, j] = count_A_and_B / count_A
+            # Calcolo P(i|j)
+            prob_matrix.iloc[i, j] = count_i_and_j / count_j
 
     return prob_matrix

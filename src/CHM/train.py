@@ -77,6 +77,8 @@ def train_box_empirical(model, ground_truth_matrix, optimizer, criterion, epochs
     
     for epoch in range(epochs):
         total_loss = 0.0
+        total_fit_loss = 0.0
+        total_reg_loss = 0.0
         
         for batch_i, batch_j, batch_targets in dataloader:
             # Sposta i dati sul device corretto
@@ -94,7 +96,11 @@ def train_box_empirical(model, ground_truth_matrix, optimizer, criterion, epochs
             predictions = predictions.squeeze()
             
             # 3. Calcola la loss
-            loss = criterion(predictions, batch_targets)
+            loss_fit = criterion(predictions, batch_targets)
+
+            loss_reg = model.get_regularization_loss()
+
+            loss = loss_fit + loss_reg
             
             # 4. Backward pass (calcola gradienti)
             loss.backward()
@@ -103,13 +109,17 @@ def train_box_empirical(model, ground_truth_matrix, optimizer, criterion, epochs
             optimizer.step()
             
             total_loss += loss.item() * batch_i.size(0)
+            total_fit_loss += loss_fit.item() * batch_i.size(0)
+            total_reg_loss += loss_reg.item() * batch_i.size(0)
             
         # Calcola la loss media dell'epoca
         avg_loss = total_loss / len(dataset)
+        avg_fit = total_fit_loss / len(dataset)
+        avg_reg = total_reg_loss / len(dataset)
         
         # Stampa i progressi ogni 10 epoche
         if (epoch + 1) % 10 == 0 or epoch == 0:
-            print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f}")
+            print(f"Epoch {epoch+1}/{epochs} | Tot: {avg_loss:.4f} | Fit: {avg_fit:.4f} | Vol: {avg_reg:.4f}")
 
     print("Addestramento completato!")
     return model
