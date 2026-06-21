@@ -428,3 +428,55 @@ def calculate_empirical_cooccurrences_OAI(df: pd.DataFrame, concept_columns: lis
             prob_matrix.iloc[i, j] = count_i_and_j / count_j
 
     return prob_matrix
+
+
+def calculate_longitudinal_transitions(df: pd.DataFrame, concept_columns: list, thresholds: list = [1.0, 2.0, 3.0]) -> pd.DataFrame:
+    """
+    Calcola la matrice delle probabilità di transizione temporale P(i_futuro | j_presente).
+    L'elemento [i, j] rappresenta la probabilità che si verifichi il concetto in riga (i) 
+    alla visita successiva (t+1), dato che il concetto in colonna (j) era presente alla visita attuale (t).
+    """
+    # 1. Ordiniamo rigorosamente i dati per paziente (id), ginocchio (side) e tempo (timepoint)
+    # L'ordinamento alfabetico di '00', '12', '24' etc. garantisce l'ordine cronologico corretto.
+    df_sorted = df.sort_values(by=['id', 'side', 'timepoint']).copy()
+    
+    # 2. Creiamo il "Futuro": scorriamo i concetti indietro di 1 riga (shift -1) 
+    # all'interno dello stesso gruppo (stesso paziente e stesso ginocchio)
+    # L'ultima visita di ogni ginocchio avrà dei NaN in 'df_future', il che è corretto.
+    df_future = df_sorted.groupby(['id', 'side'])[concept_columns].shift(-1)
+    
+    # Generiamo i nodi logici
+    nodes = []
+    for col in concept_columns:
+        for th in thresholds:
+            nodes.append((col, th))
+            
+    n_nodes = len(nodes)
+    prob_matrix = pd.DataFrame(np.zeros((n_nodes, n_nodes)), 
+                               index=[f"{c}_>={t}" for c, t in nodes], 
+                               columns=[f"{c}_>={t}" for c, t in nodes])
+    
+    # 3. Calcolo vettorizzato delle transizioni
+    for j, (col_j, th_j) in enumerate(nodes):
+        # Condizione j al TEMPO t (Il nostro dato di partenza / Denominatore)
+        j_present_active = df_sorted[col_j] >= th_j
+        
+        for i, (col_i, th_i) in enumerate(nodes):
+            # Universo valido: 
+            # I pazienti che avevano 'j' al tempo t, e di cui ABBIAMO la refertazione di 'i' al tempo t+1
+            valid_universe_mask = j_present_active & df_future[col_i].notna()
+            
+            count_j_present = valid_universe_mask.sum()
+            
+            if count_j_present == 0:
+                prob_matrix.iloc[i, j] = 0.0
+                continue
+                
+            # Numeratore: Tra questi, quanti hanno (o mantengono) il sintomo 'i' al TEMPO t+1?
+            i_future_active = df_future[col_i] >= th_i
+            count_i_fut_and_j_pres = (valid_universe_mask & i_future_active).sum()
+            
+            # Calcolo P(i_{t+1} | j_t)
+            prob_matrix.iloc[i, j] = count_i_fut_and_j_pres / count_j_present
+
+    return prob_matrix

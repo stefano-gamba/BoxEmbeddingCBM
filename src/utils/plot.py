@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from sklearn.metrics import confusion_matrix
-
+import torch
 from src.CHM.test import test_cbm_classifier
 
 def plot_history(history):
@@ -275,4 +275,48 @@ def plot_intervention_curve(
     plt.ylabel('Accuratezza del Classificatore (%)')
     plt.grid(True)
     plt.legend()
+    plt.show()
+
+
+def plot_clinical_heatmap(tensor_matrix, concept_labels=None):
+    """
+    Disegna una heatmap della matrice delle probabilità.
+    
+    Args:
+        tensor_matrix: Il tensore PyTorch (o array numpy/DataFrame) con la matrice P(i|j).
+        concept_labels: Lista dei nomi dei 40 nodi per etichettare gli assi.
+    """
+    # 1. Conversione del tensore PyTorch in un array Numpy (se necessario)
+    if torch.is_tensor(tensor_matrix):
+        # Sposta sulla CPU se era su GPU e converte
+        matrix_data = tensor_matrix.detach().cpu().numpy()
+    else:
+        matrix_data = tensor_matrix
+
+    # 2. Configurazione della figura (molto grande per accogliere 40 etichette)
+    plt.figure(figsize=(18, 15))
+    
+    # 3. Creazione della heatmap
+    ax = sns.heatmap(
+        matrix_data, 
+        cmap='magma',        # 'magma', 'viridis' o 'YlGnBu' sono ottime per dati continui 0-1
+        vmin=0.0, vmax=1.0,  # Fissiamo la scala tra 0% e 100% per coerenza visiva
+        annot=False,         # Messo a False per evitare che 1600 numeri si sovrappongano
+        xticklabels=concept_labels if concept_labels is not None else 'auto',
+        yticklabels=concept_labels if concept_labels is not None else 'auto',
+        linewidths=0.5,      # Aggiunge una sottile griglia per separare i box
+        linecolor='black'
+    )
+    
+    # 4. Estetica e Titoli
+    plt.title('Matrice delle Probabilità di Transizione $P(i | j)$', fontsize=20, pad=20)
+    plt.xlabel('Condizione Data (Sintomo j)', fontsize=14, labelpad=15)
+    plt.ylabel('Condizione Implicata (Sintomo i)', fontsize=14, labelpad=15)
+    
+    # Ruotiamo le etichette per renderle leggibili
+    plt.xticks(rotation=90, fontsize=10)
+    plt.yticks(rotation=0, fontsize=10)
+    
+    # Ottimizza gli spazi e mostra
+    plt.tight_layout()
     plt.show()
