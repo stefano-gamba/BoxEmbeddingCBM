@@ -8,6 +8,9 @@ import re
 from pathlib import Path
 from PIL import Image
 import matplotlib.pyplot as plt
+import os
+import pydicom
+from tqdm import tqdm
 
 #-------------------------
 # AWA2 DATASET
@@ -163,40 +166,60 @@ def mappa_immagini_tramite_manifest(root_dir, df_pulito, manifest_path):
     manifest = pd.read_csv(manifest_path, sep='\t', header=1, low_memory=False)
     manifest.columns = [str(c).strip().lower() for c in manifest.columns]
 
-    # Riferimenti alle colonne esatte che hai stampato
     col_desc = 'image description, i.e. dti, fmri, fast spgr, phantom, eeg, dynamic pet'
     col_subj = "subject id how it's defined in lab/project"
 
     print("2. Creazione dell'indice di ricerca universale...")
-    # Isoliamo solo i record relativi alle ginocchia
     is_knee = manifest[col_desc].str.contains('knee|pa fixed flexion', case=False, na=False)
     manifest_knee = manifest[is_knee].copy()
 
-    # Creiamo un dizionario: ID Paziente -> Mega-stringa con tutti i dati delle sue radiografie del ginocchio
     knee_records_by_subj = {}
     for subj_id, group in manifest_knee.groupby(col_subj):
-        # Uniamo TUTTI i valori di TUTTE le colonne in una singola stringa minuscola
         mega_stringa = " | ".join(group.astype(str).values.flatten()).lower()
         knee_records_by_subj[str(subj_id)] = mega_stringa
 
-    print("3. Scansione del disco e verifica incrociata...")
+    print("3. Scansione del disco e verifica incrociata (Ibrida JPG + DICOM)...")
     root_path = Path(root_dir)
     immagini_trovate = {}
-    file_jpg_totali_visti = 0
+    file_jpg_visti = 0
+    file_dicom_visti = 0
 
     for folder_name, sas_visit_code in TIMEPOINT_MAP.items():
         time_path = root_path / folder_name
         if not time_path.exists():
             continue
 
-        for img_path in time_path.rglob('*.jpg'):
-            file_jpg_totali_visti += 1
+        # Modifica 1: Scansioniamo tutti i file per trovare sia JPG che i DICOM (001)
+        for img_path in time_path.rglob('*'):
+            if not img_path.is_file():
+                continue
 
-            # Dal nome file '00175004_1x1.jpg' ricaviamo le due possibili forme in cui è scritto
-            base_id_str = img_path.stem.split('_')[0]                 # '00175004'
-            base_id_int_str = str(int(base_id_str)) if base_id_str.isdigit() else base_id_str # '175004'
+            nome_file = img_path.name.lower()
+            is_jpg = nome_file.endswith('.jpg')
+            is_dicom = (img_path.name == '001') # Identificativo standard OAI per i DICOM estratti
 
-            # Estraiamo l'ID Paziente (7 cifre)
+            # Se non è né un jpg né un dicom estratto, ignoralo
+            if not (is_jpg or is_dicom):
+                continue
+
+            if is_jpg:
+                file_jpg_visti += 1
+                base_id_str = img_path.stem.split('_')[0]
+                path_da_salvare = str(img_path)
+            else:
+                file_dicom_visti += 1
+                # Modifica 2: Se è il file '001', il vero identificativo NDA è il nome della cartella genitrice
+                nome_cartella = img_path.parent.name
+                base_id_str = nome_cartella.split('_')[0]
+
+                # TRUCCO MAGICO: Salviamo il path della cartella genitrice riaggiungendo ".tar.gz".
+                # Così facendo, la funzione load_hybrid_image() che hai già nel dataloader
+                # saprà esattamente come spacchettarlo al volo senza generare errori!
+                path_da_salvare = str(img_path.parent) + '.tar.gz'
+
+            base_id_int_str = str(int(base_id_str)) if base_id_str.isdigit() else base_id_str
+
+            # Estraiamo l'ID Paziente (7 cifre che iniziano per 9)
             match = re.search(r'/([9]\d{6})/', str(img_path))
             if not match:
                 continue
@@ -206,13 +229,13 @@ def mappa_immagini_tramite_manifest(root_dir, df_pulito, manifest_path):
             if paziente_id in knee_records_by_subj:
                 mega_stringa = knee_records_by_subj[paziente_id]
 
-                # Se l'identificativo immagine compare OVUNQUE nei record 'Knee' di questo paziente... è un ginocchio!
                 if (base_id_str in mega_stringa) or (base_id_int_str in mega_stringa):
                     logical_key = f"{paziente_id}_{sas_visit_code}"
-                    immagini_trovate[logical_key] = str(img_path)
+                    immagini_trovate[logical_key] = path_da_salvare
 
     print(f"\n--- REPORT SCANSIONE ---")
-    print(f"File JPG totali visti sul disco: {file_jpg_totali_visti}")
+    print(f"File JPG visti sul disco: {file_jpg_visti}")
+    print(f"File DICOM (estratti dai tar.gz) visti sul disco: {file_dicom_visti}")
     print(f"Match Riusciti (Ginocchia certificate): {len(immagini_trovate)}")
 
     print("\n4. Join finale con le annotazioni SAS...")
@@ -290,7 +313,7 @@ class OAICBMDataset(Dataset):
         side = int(row['side']) # 1 = Destro, 2 = Sinistro
 
         try:
-            img_bilaterale = Image.open(image_path).convert('RGB')
+            img_bilaterale = load_hybrid_image(image_path)
         except Exception as e:
             print(f"Errore nel caricamento dell'immagine {image_path}: {e}")
             # Fallback (utile in fase di test, in produzione meglio rimuovere i path corrotti a monte)
@@ -350,3 +373,66 @@ def mostra_tensore_immagine(tensor, title="Radiografia Ginocchio Singolo"):
     plt.imshow(image)
     plt.axis('off')
     plt.show()
+
+def load_hybrid_image(image_path):
+    """
+    Legge il percorso dal dataframe. Se è un JPG lo apre normalmente.
+    Se è un .tar.gz, cerca la cartella decompressa, estrae il DICOM binario,
+    lo normalizza a 8-bit (0-255) e lo restituisce come immagine PIL RGB.
+    """
+    # CASO 1: Il file è un JPG
+    if image_path.endswith('.jpg'):
+        if os.path.exists(image_path):
+            return Image.open(image_path).convert('RGB')
+
+    # CASO 2: Il file originario era un .tar.gz (DICOM)
+    elif image_path.endswith('.tar.gz'):
+        # Rimuoviamo l'estensione per trovare la cartella estratta in precedenza
+        folder_path = image_path.replace('.tar.gz', '')
+
+        if os.path.exists(folder_path) and os.path.isdir(folder_path):
+            # Troviamo il file DICOM grezzo (solitamente nominato '001')
+            files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+
+            if files:
+                dicom_path = os.path.join(folder_path, files[0])
+
+                # Lettura DICOM e decodifica dei pixel
+                ds = pydicom.dcmread(dicom_path, force=True)
+                if 'TransferSyntaxUID' not in ds.file_meta:
+                    ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+
+                pixel_array = ds.pixel_array.astype(float)
+
+                # Normalizzazione rigorosa da 16-bit a 8-bit
+                pixel_array = (np.maximum(pixel_array, 0) / pixel_array.max()) * 255.0
+                pixel_array = np.uint8(pixel_array)
+
+                return Image.fromarray(pixel_array).convert('RGB')
+
+    # Se arriviamo qui, il file non esiste o il formato non è gestito
+    raise FileNotFoundError(f"Immagine non trovata o formato invalido per: {image_path}")
+
+def salva_golden_dataset(dataset, split_name, base_dir='/content/OAI_Golden_Dataset'):
+    # Creiamo le cartelle sul disco LOCALE velocissimo di Colab (/content/)
+    save_dir = os.path.join(base_dir, split_name)
+    os.makedirs(save_dir, exist_ok=True)
+
+    print(f"\nSalvataggio {split_name.upper()} set ({len(dataset)} campioni)...")
+
+    # tqdm mostra il tempo rimanente stimato
+    for i in tqdm(range(len(dataset))):
+        try:
+            # 1. Questo triggera il tuo __getitem__ (legge DICOM, crop, ROI, transforms)
+            sample = dataset[i]
+
+            # 2. Definiamo il nome del file usando la tua logical_key (es. 9001234_00.pt)
+            file_name = f"{sample['image_key']}.pt"
+            save_path = os.path.join(save_dir, file_name)
+
+            # 3. Salviamo l'intero dizionario pre-calcolato
+            torch.save(sample, save_path)
+
+        except Exception as e:
+            # Se per caso un'immagine dovesse essere corrotta, la saltiamo senza far crashare tutto
+            print(f"Errore al campione {i} (Key: {dataset.df.iloc[i].get('logical_key', 'N/A')}): {e}")
