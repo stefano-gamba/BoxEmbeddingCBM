@@ -10,28 +10,35 @@ from box_embeddings.modules.regularization import L2SideBoxRegularizer
 # ========================================================
 
 class BoxHierarchyModel(nn.Module):
-    def __init__(self, num_concepts, dim=32, soft_intersection=False):
+    def __init__(self, num_concepts, dim=32, soft_intersection=False, bessel_volume=False, volume_temperature=0.1, simple_init=True):
         super().__init__()
         self.dim = dim # <-- Salviamo dim per usarlo nel forward
         
         # Ogni box necessita di 2*dim parametri (dim per z_min, dim per delta)
         self.embeddings = nn.Embedding(num_concepts, 2 * dim)
         
-        # 1. Centri: Sfalsati per rompere la simmetria
-        nn.init.uniform_(self.embeddings.weight.data[:, :dim], -0.01, 0.01)
-        
-        # 2. Lati: Molto grandi in modo che partano tutti sovrapposti ma scentrati
-        nn.init.constant_(self.embeddings.weight.data[:, dim:], 2.0)
+        if simple_init:
+            nn.init.uniform_(self.embeddings.weight, -0.5, 0.5)
+        else:
+            # 1. Centri: Sfalsati per rompere la simmetria
+            nn.init.uniform_(self.embeddings.weight.data[:, :dim], -0.01, 0.01)
+            # 2. Lati: Molto grandi in modo che partano tutti sovrapposti ma scentrati
+            nn.init.constant_(self.embeddings.weight.data[:, dim:], 2.0)
         
         if soft_intersection:
             self.intersection = GumbelIntersection(intersection_temperature=0.001)
         else:
             self.intersection = HardIntersection()
-        #self.volume = SoftVolume(volume_temperature=0.1)
-        self.volume = BesselApproxVolume(
-            volume_temperature=0.1, 
-            intersection_temperature=0.01 # Deve combaciare con l'intersezione
-        )
+        
+        if bessel_volume:
+    
+            self.volume = BesselApproxVolume(
+                volume_temperature=volume_temperature, 
+                intersection_temperature=0.01 # Deve combaciare con l'intersezione
+            )
+        else:
+            self.volume = SoftVolume(volume_temperature=volume_temperature)
+
         self.regularizer = L2SideBoxRegularizer(log_scale=False, weight=0.0)
 
     def forward(self, idx_i, idx_j):

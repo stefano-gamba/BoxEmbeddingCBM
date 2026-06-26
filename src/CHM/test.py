@@ -1,6 +1,6 @@
 import torch
 from sklearn.metrics import classification_report
-from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing
+from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing, apply_soft_logical_smoothing
 import numpy as np
 
 from src.utils.intervention import generate_intervention_mask
@@ -183,7 +183,7 @@ def test_sequential_cbm(
             c_probs, _ = concept_predictor(features)
 
             if logical_smoothing:
-                concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
+                concept_preds = apply_soft_logical_smoothing(c_probs, prob_matrix, alpha)
             else:
                 concept_preds = c_probs
                 

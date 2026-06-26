@@ -18,25 +18,25 @@ from src.utils.dataset import classical_split_awa2_features
 
 NOISY_CONCEPTS = {
     # 1. Sensi, fisicità astratta e cinematica (Non deducibili in modo affidabile da una foto statica)
-    #'smelly', 'fast', 'slow', 'strong', 'weak', 'muscle', 'agility',
+    'smelly', 'fast', 'slow', 'strong', 'weak', 'muscle', 'agility',
     
     # 2. Comportamento, temperamento e abitudini sociali
-    #'active', 'inactive', 'nocturnal', 'hibernate', 'fierce', 'timid', 
-    #'smart', 'group', 'solitary', 'tunnels',
+    'active', 'inactive', 'nocturnal', 'hibernate', 'fierce', 'timid', 
+    'smart', 'group', 'solitary', 'tunnels',
     
     # 3. Dieta e ruoli alimentari (Causerebbero allucinazioni nell'apprendimento)
-    #'fish', 'meat', 'plankton', 'vegetation', 'insects', 
-    #'forager', 'grazer', 'hunter', 'scavenger', 'skimmer', 'stalker',
+    'fish', 'meat', 'plankton', 'vegetation', 'insects', 
+    'forager', 'grazer', 'hunter', 'scavenger', 'skimmer', 'stalker',
     
     # 4. Habitat, geografia e background (Forzerebbero la rete a ignorare l'animale per guardare lo sfondo)
-    #'newworld', 'oldworld', 'arctic', 'coastal', 'desert', 'bush', 
-    #'plains', 'forest', 'fields', 'jungle', 'mountains', 'ocean', 
-    #'ground', 'water', 'tree', 'cave', 'nestspot',
+    'newworld', 'oldworld', 'arctic', 'coastal', 'desert', 'bush', 
+    'plains', 'forest', 'fields', 'jungle', 'mountains', 'ocean', 
+    'ground', 'water', 'tree', 'cave', 'nestspot',
     
     # 5. Concetti relazionali/umani
-    #'domestic',
+    'domestic',
 
-    #'swims'
+    'swims'
 }
 
 def load_awa2_concepts(filepath):
