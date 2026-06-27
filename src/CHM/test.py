@@ -9,7 +9,7 @@ def test_cbm_classifier(
         model, 
         test_dataloader, 
         class_concept_matrix,
-        boxes_tensor,
+        boxes_tensor=None,
         device="cpu",
         info="boxes",
         bipolar=False,
@@ -94,7 +94,11 @@ def test_cbm_classifier(
             c_true = concept_labels.unsqueeze(-1)
 
             # --- CREAZIONE DELL'INPUT (Usa model_prob_matrix!) ---
-            if info == "boxes":
+            if info == "geometric":
+                # Nessun broadcasting complesso necessario! Passiamo direttamente i concetti.
+                # Shape: (batch_size, num_concepts)
+                scaled_info = concept_labels
+            elif info == "boxes":
                 scaled_info = c_true * boxes_tensor.unsqueeze(0)
             elif info == "rel_matrix":
                 joint_activation = concept_labels.unsqueeze(2) * concept_labels.unsqueeze(1)
@@ -202,7 +206,9 @@ def test_sequential_cbm(
             # -------------------------------------------------------------
             # STEP 2: Mascheramento Soft (Scaling)
             # -------------------------------------------------------------
-            if info == "boxes":
+            if info == "geometric":
+                scaled_info = concept_preds
+            elif info == "boxes":
                 scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
             elif info == "rel_matrix":
                 joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)

@@ -15,8 +15,6 @@ def train_cbm_classifier(
         device="cpu",
         info="boxes",
         bipolar=False,
-        smoothing_logic=False,
-        alpha=0.5,
     ):
     """
     dataset_classificazione: Lista di tuple (classe_target, vettore_concetti_binario)
@@ -27,12 +25,11 @@ def train_cbm_classifier(
     class_concept_matrix = class_concept_matrix.to(device)
     boxes_tensor = boxes_tensor.to(device)
 
-    if info == "rel_matrix" or info == "all" or smoothing_logic:
+    if info == "rel_matrix" or info == "all":
         with torch.no_grad():
             prob_matrix = calcola_matrice_probabilita(boxes_tensor)
             prob_matrix = prob_matrix.to(device)
-            if not smoothing_logic:
-                prob_matrix.fill_diagonal_(0.0)
+            prob_matrix.fill_diagonal_(0.0)
     
     
     history = {
@@ -53,10 +50,6 @@ def train_cbm_classifier(
             features = features.to(device)
             labels = labels.to(device).long().view(-1) - 1 # Assumiamo che le classi siano 1-indexed, quindi convertiamo a 0-indexed
             concept_labels = class_concept_matrix[labels].float()
-
-            if smoothing_logic:
-                concept_labels = apply_logical_smoothing(concept_labels, prob_matrix, alpha)
-            
 
             # Trasformiamo i 0 in -1, e lasciamo gli 1 come 1.
             # La formula (x * 2) - 1 fa esattamente questo: (0*2)-1 = -1 | (1*2)-1 = 1
@@ -103,9 +96,6 @@ def train_cbm_classifier(
                 features = features.to(device)
                 labels = labels.to(device).long().view(-1) - 1
                 concept_labels = class_concept_matrix[labels].float()
-
-                if smoothing_logic:
-                    concept_labels = apply_logical_smoothing(concept_labels, prob_matrix, alpha)
 
                 if bipolar:
                     concept_labels = concept_labels * 2 - 1
@@ -161,8 +151,6 @@ def sequential_training(
         device,
         info="boxes",
         bipolar=False,
-        logical_smoothing=False,
-        alpha=0.5,
 ):
     """
     Esegue l'addestramento Sequential Bottleneck in due fasi:
@@ -198,12 +186,12 @@ def sequential_training(
     
     boxes_tensor = boxes_tensor.to(device)
 
-    if info == "rel_matrix" or info == "all" or logical_smoothing:
+    if info == "rel_matrix" or info == "all":
         with torch.no_grad():
             prob_matrix = calcola_matrice_probabilita(boxes_tensor)
             prob_matrix = prob_matrix.to(device)
-            if not logical_smoothing:
-                prob_matrix.fill_diagonal_(0.0)
+            prob_matrix.fill_diagonal_(0.0)
+                
             
     history_cls = {
         'train': {'tot_loss': [], 'acc': []},
@@ -227,11 +215,7 @@ def sequential_training(
                 # Assumiamo che il predittore restituisca (probs, logits)
                 c_probs, _ = concept_predictor(features)
             
-            if logical_smoothing:
-                concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
-            else:
-                # Usiamo le probabilità (valori tra 0 e 1) per il mascheramento soft
-                concept_preds = c_probs
+            concept_preds = c_probs
 
             if bipolar:
                 # Mappa le probabilità da [0, 1] a [-1, 1] 
@@ -242,9 +226,14 @@ def sequential_training(
             
             # Formattiamo i concetti predetti
             c_pred_expanded = concept_preds.unsqueeze(-1) # shape: (batch_size, num_concepts, 1)
+
+            if info == "geometric":
+                # Nessun broadcasting complesso necessario! Passiamo direttamente i concetti.
+                # Shape: (batch_size, num_concepts)
+                scaled_info = concept_preds
             
             # Scaliamo i box embedding / matrici con le PREDIZIONI
-            if info == "boxes":
+            elif info == "boxes":
                 scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
             elif info == "rel_matrix":
                 joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
@@ -284,17 +273,20 @@ def sequential_training(
                 # Otteniamo i concetti predetti sul set di validazione
                 c_probs, _ = concept_predictor(features)
 
-                if logical_smoothing:
-                    concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
-                else:
-                    concept_preds = c_probs
+                
+                concept_preds = c_probs
 
                 if bipolar:
                     concept_preds = concept_preds * 2 - 1
                 
                 c_pred_expanded = concept_preds.unsqueeze(-1)
 
-                if info == "boxes":
+                if info == "geometric":
+                    # Nessun broadcasting complesso necessario! Passiamo direttamente i concetti.
+                    # Shape: (batch_size, num_concepts)
+                    scaled_info = concept_preds
+
+                elif info == "boxes":
                     scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
                 elif info == "rel_matrix":
                     joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
@@ -347,8 +339,6 @@ def joint_training(
         gamma_h=0.5,  
         info="boxes",
         bipolar=False,
-        logical_smoothing=False,
-        alpha=0.5,
 ):
     print("\n========== Addestramento Joint CBM (con Logica Gerarchica) ==========")
     
@@ -360,8 +350,7 @@ def joint_training(
     with torch.no_grad():
         prob_matrix = calcola_matrice_probabilita(boxes_tensor).to(device)
         model_prob_matrix = prob_matrix.clone()
-        if not logical_smoothing:
-            model_prob_matrix.fill_diagonal_(0.0)
+        model_prob_matrix.fill_diagonal_(0.0)
             
     # AGGIUNTO: Struttura history espansa per il validation set
     history = {
@@ -393,11 +382,7 @@ def joint_training(
             loss_c = weighted_concept_loss(c_logits, c_gt, concept_weights)
             loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
 
-            # 2. Modulazione per l'input al Classificatore
-            if logical_smoothing:
-                concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
-            else:
-                concept_preds = c_probs
+            concept_preds = c_probs
 
             if bipolar:
                 concept_preds = concept_preds * 2 - 1
@@ -405,7 +390,11 @@ def joint_training(
             c_pred_expanded = concept_preds.unsqueeze(-1)
             
             # 3. Mascheramento Soft (Scaling) con i box embedding
-            if info == "boxes":
+            if info == "geometric":
+                # Nessun broadcasting complesso necessario! Passiamo direttamente i concetti.
+                # Shape: (batch_size, num_concepts)
+                scaled_info = concept_preds
+            elif info == "boxes":
                 scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
             elif info == "rel_matrix":
                 joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)
@@ -454,17 +443,18 @@ def joint_training(
                 loss_c = weighted_concept_loss(c_logits, c_gt, concept_weights)
                 loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
 
-                if logical_smoothing:
-                    concept_preds = apply_logical_smoothing(c_probs, prob_matrix, alpha)
-                else:
-                    concept_preds = c_probs
+                concept_preds = c_probs
 
                 if bipolar:
                     concept_preds = concept_preds * 2 - 1
                 
                 c_pred_expanded = concept_preds.unsqueeze(-1)
 
-                if info == "boxes":
+                if info == "geometric":
+                    # Nessun broadcasting complesso necessario! Passiamo direttamente i concetti.
+                    # Shape: (batch_size, num_concepts)
+                    scaled_info = concept_preds
+                elif info == "boxes":
                     scaled_info = c_pred_expanded * boxes_tensor.unsqueeze(0)
                 elif info == "rel_matrix":
                     joint_activation = concept_preds.unsqueeze(2) * concept_preds.unsqueeze(1)

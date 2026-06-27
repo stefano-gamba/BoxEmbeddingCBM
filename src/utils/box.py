@@ -105,6 +105,30 @@ def calcola_matrice_probabilita(boxes_tensor):
     
     return prob_matrix
 
+def get_geometric_class_weights(model_box, num_classes, num_concepts, device="cpu"):
+    """
+    Interroga lo spazio latente congelato per calcolare la matrice fissa W.
+    W[y, c] rappresenta l'inclusione geometrica del concetto 'c' nella classe 'y'.
+    Shape di ritorno: (num_classes, num_concepts)
+    """
+    model_box.eval()
+    model_box.to(device)
+    
+    # Matrice dei pesi geometrici
+    W_geom = torch.zeros((num_classes, num_concepts), device=device)
+    
+    with torch.no_grad():
+        for c_idx in range(num_concepts):
+            for y_idx in range(num_classes):
+                t_c = torch.tensor([c_idx], device=device)
+                t_y = torch.tensor([y_idx], device=device)
+                
+                # Calcola Vol(Classe ∩ Concetto) / Vol(Classe)
+                prob = model_box.forward_classes(t_c, t_y)
+                W_geom[y_idx, c_idx] = prob.item()
+                
+    return W_geom # Matrice pronta per essere usata dal CBM
+
 
 def apply_logical_smoothing(concept_labels, smoothing_matrix, threshold=0.5):
     """
