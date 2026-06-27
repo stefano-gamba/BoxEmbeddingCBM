@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import os
 import pydicom
 from tqdm import tqdm
+import json
 
 #-------------------------
 # AWA2 DATASET
@@ -134,6 +135,67 @@ class ConceptImplicationDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.idx_i[idx], self.idx_j[idx], self.targets[idx]
+
+
+def load_concept_data(json_path, concepts):
+    with open(json_path, 'r') as f:
+        data = json.load(f)
+        
+    concept2id = {c: idx for idx, c in enumerate(concepts)}
+    id2concept = {idx: c for c, idx in concept2id.items()}
+    
+    # Prepariamo il dataset nel formato [(id_i, id_j, label), ...]
+    dataset = []
+    for item in data:
+        dataset.append((concept2id[item[0]], concept2id[item[1]], float(item[2])))
+        
+    return dataset, concept2id, id2concept
+
+def prepare_class_concept_dataset(class_concept_matrix, class2id):
+    """
+    class_concept_matrix: array 2D di shape (num_classes, num_concepts) 
+                          con valori 1.0 (presenza) o 0.0 (assenza).
+    """
+    dataset_classes = []
+    num_classes, num_concepts = class_concept_matrix.shape
+    
+    for c_idx in range(num_classes):
+        for concept_idx in range(num_concepts):
+            label = float(class_concept_matrix[c_idx, concept_idx])
+            # La tripla è (Container, Contained, Target) -> (Concetto, Classe, P)
+            dataset_classes.append((concept_idx, c_idx, label))
+            
+    return dataset_classes
+
+def parse_classes(filepath):
+    """Legge il file delle classi e restituisce una lista ordinata."""
+    classes = []
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            # Rimuove eventuali tag come 
+            line = re.sub(r'\\', '', line).strip()
+            if not line:
+                continue
+            parts = line.split()
+            # Assumiamo che il primo elemento sia l'ID e il resto il nome della classe
+            if len(parts) >= 2:
+                classes.append(parts[1])
+    return classes
+
+def parse_concepts(filepath):
+    """Legge il file dei concetti e restituisce una lista ordinata."""
+    concepts = []
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            # Rimuove eventuali tag come 
+            line = re.sub(r'\\', '', line).strip()
+            if not line:
+                continue
+            parts = line.split()
+            # Assumiamo che il primo elemento sia l'ID e il resto il nome del concetto
+            if len(parts) >= 2:
+                concepts.append(parts[1])
+    return concepts
     
 #-------------------------
 # OAI DATASET
