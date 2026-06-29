@@ -143,47 +143,55 @@ def explain_prediction(
                 status_text = "Presente" if is_present_gt else "Assente"
                 return f"{label_string} ({status_text})"
 
-        # --- Logica di aggregazione top_k identica alla tua versione ---
+        # --- Logica di aggregazione top_k ---
+        num_concepts = len(concept_names)
+        
+        # 1. Definiamo i contributi target e il titolo in base al tipo di informazione
         if info_type == 'boxes':
             box_dim = boxes_tensor.shape[1]
-            num_concepts = len(concept_names)
-            concept_contributions = contributions.view(num_concepts, box_dim).sum(dim=1)
-            
-            values, indices = torch.topk(concept_contributions, min(top_k, num_concepts))
-            for i in indices:
-                plot_labels.append(format_label(i, concept_names[i]))
-            plot_values = values.cpu().numpy()
-            title = f"Top {top_k} Contributi dei Concetti (Box)"
+            target_contributions = contributions.view(num_concepts, box_dim).sum(dim=1)
+            title = f"Top e Bottom {top_k} Contributi dei Concetti (Box)"
             
         elif info_type == 'rel_matrix':
-            num_concepts = len(concept_names)
-            top_vals, top_flat_indices = torch.topk(contributions, min(top_k, num_concepts**2)) 
-            bottom_vals, bottom_flat_indices = torch.topk(contributions, min(top_k, num_concepts**2), largest=False) 
-            
-            for val, flat_idx in zip(top_vals, top_flat_indices):
-                i = flat_idx // num_concepts
-                j = flat_idx % num_concepts
-                label_str = f"P({concept_names[i]}|{concept_names[j]})"
-                plot_labels.append(format_label(i, label_str))
-                plot_values.append(val.item())
-                
-            for val, flat_idx in zip(bottom_vals, bottom_flat_indices):
-                i = flat_idx // num_concepts
-                j = flat_idx % num_concepts
-                label_str = f"P({concept_names[i]}|{concept_names[j]})"
-                plot_labels.append(format_label(i, label_str))
-                plot_values.append(val.item())
-                
-            title = f"Top {top_k} e Bottom {top_k} Contributi Relazionali"
-            plot_values = np.array(plot_values)
+            target_contributions = contributions  # Shape: (num_concepts^2)
+            title = f"Top e Bottom {top_k} Contributi Relazionali"
             
         elif info_type == 'concepts':
-            num_concepts = len(concept_names)
-            top_vals, top_indices = torch.topk(contributions, min(top_k, num_concepts))
-            for i in top_indices:
-                plot_labels.append(format_label(i, concept_names[i]))
-            plot_values = top_vals.cpu().numpy()
-            title = f"Top {top_k} Contributi dei Concetti (Presenza)"
+            target_contributions = contributions  # Shape: (num_concepts)
+            title = f"Top e Bottom {top_k} Contributi dei Concetti (Presenza)"
+        
+        # 2. Estraiamo Top K e Bottom K con un'unica operazione
+        k_to_extract = min(top_k, target_contributions.size(0))
+        top_vals, top_idx = torch.topk(target_contributions, k_to_extract)
+        bottom_vals, bottom_idx = torch.topk(target_contributions, k_to_extract, largest=False)
+        
+        # Concateniamo i risultati in due unici vettori
+        all_vals = torch.cat([top_vals, bottom_vals]).cpu().tolist()
+        all_idx = torch.cat([top_idx, bottom_idx]).cpu().tolist()
+
+        # 3. Un unico ciclo per parsare gli indici, evitare duplicati e formattare i label
+        seen_labels = set()
+        
+        for val, idx in zip(all_vals, all_idx):
+            # Gestione specifica degli indici per le relazioni (2D) rispetto a concetti/box (1D)
+            if info_type == 'rel_matrix':
+                i = idx // num_concepts
+                j = idx % num_concepts
+                concept_gt_idx = i  # Passiamo il primo concetto per leggere la Ground Truth
+                label_str = f"P({concept_names[i]}|{concept_names[j]})"
+            else:
+                concept_gt_idx = idx
+                label_str = concept_names[idx]
+                
+            # Aggiungiamo alla lista solo se non l'abbiamo già processato 
+            # (evita la sovrapposizione se i top K e bottom K si incrociano)
+            if label_str not in seen_labels:
+                seen_labels.add(label_str)
+                plot_labels.append(format_label(concept_gt_idx, label_str))
+                plot_values.append(val)
+
+        # Convertiamo in numpy array per matplotlib
+        plot_values = np.array(plot_values)
 
     # 6. Visualizzazione Grafica
     plt.figure(figsize=(12, 8))

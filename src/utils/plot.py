@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from sklearn.metrics import confusion_matrix
@@ -276,6 +275,119 @@ def plot_intervention_curve(
     plt.grid(True)
     plt.legend()
     plt.show()
+
+
+def evaluate_tti_curves(
+    model_linear, 
+    model_dynamic_box, 
+    concept_predictor, 
+    test_dataloader, 
+    class_concept_matrix, 
+    boxes_tensor, 
+    device="cpu", 
+    num_interventions=20 # Quanti concetti l'umano corregge al massimo
+):
+    """
+    Simula il Test-Time Intervention (TTI) sostituendo gradualmente le predizioni 
+    della CNN (CP) con i valori perfetti della Ground Truth (GT).
+    Confronta la crescita di accuratezza del Layer Lineare vs Dynamic Box.
+    """
+    model_linear.eval()
+    model_dynamic_box.eval()
+    concept_predictor.eval()
+    model_linear.to(device)
+    model_dynamic_box.to(device)
+    concept_predictor.to(device)
+    boxes_tensor = boxes_tensor.to(device)
+    
+    # Per memorizzare l'accuratezza a ogni step di intervento (da 0 a num_interventions)
+    acc_history_linear = []
+    acc_history_dynamic = []
+    
+    # Parametri per l'asse X del grafico
+    intervention_steps = list(range(0, num_interventions + 1, 2)) # Step: 0, 2, 4, 6...
+    
+    print("Inizio Simulazione TTI...")
+    
+    for num_corr in intervention_steps:
+        correct_linear = 0
+        correct_dynamic = 0
+        total_samples = 0
+        
+        with torch.no_grad():
+            for features, labels in test_dataloader:
+                features = features.to(device)
+                labels = labels.to(device).long().view(-1) - 1
+                
+                # 1. Otteniamo la Ground Truth perfetta
+                c_gt = class_concept_matrix[labels].float()
+                
+                # 2. Otteniamo le probabilità reali dalla CNN
+                c_probs, _ = concept_predictor(features)
+                
+                # --- L'INTERVENTO UMANO ---
+                # Simuliamo un umano che interviene e corregge 'num_corr' concetti
+                c_intervened = c_probs.clone()
+                batch_size, num_concepts = c_probs.shape
+                
+                # Metodo: Correggiamo i concetti con maggiore incertezza (più vicini a 0.5)
+                # Calcoliamo la distanza da 0.5 (più piccola = più incerta)
+                uncertainty = -torch.abs(c_probs - 0.5) 
+                
+                # Troviamo gli indici dei 'num_corr' concetti più incerti
+                if num_corr > 0:
+                    _, top_indices = torch.topk(uncertainty, min(num_corr, num_concepts), dim=1)
+                    
+                    # Sostituiamo le probabilità incerte con la Ground Truth
+                    # (L'umano dice: "Questo è 1" o "Questo è 0")
+                    for b in range(batch_size):
+                        idx_to_fix = top_indices[b]
+                        c_intervened[b, idx_to_fix] = c_gt[b, idx_to_fix]
+                
+                # --- FORWARD PASS LINEAR LAYER ---
+                # Riformattiamo l'input per il modello lineare (es. info="boxes")
+                c_expanded_lin = c_intervened.unsqueeze(-1)
+                scaled_info_lin = c_expanded_lin * boxes_tensor.unsqueeze(0)
+                logits_lin = model_linear(scaled_info_lin)
+                preds_lin = torch.argmax(logits_lin, dim=1)
+                correct_linear += (preds_lin == labels).sum().item()
+                
+                # --- FORWARD PASS DYNAMIC BOX ---
+                # Il modello dynamic_box prende direttamente le probabilità [0,1]
+                logits_dyn = model_dynamic_box(c_intervened)
+                preds_dyn = torch.argmax(logits_dyn, dim=1)
+                correct_dynamic += (preds_dyn == labels).sum().item()
+                
+                total_samples += labels.size(0)
+                
+        # Calcoliamo la percentuale di accuratezza per questo step
+        acc_linear = (correct_linear / total_samples) * 100
+        acc_dynamic = (correct_dynamic / total_samples) * 100
+        
+        acc_history_linear.append(acc_linear)
+        acc_history_dynamic.append(acc_dynamic)
+        
+        print(f"Concetti Corretti: {num_corr} | Acc Linear: {acc_linear:.1f}% | Acc Dynamic Box: {acc_dynamic:.1f}%")
+
+    # --- PLOT DEL GRAFICO ---
+    plt.figure(figsize=(10, 6))
+    plt.plot(intervention_steps, acc_history_linear, marker='o', linestyle='-', color='#e74c3c', linewidth=2, label='Linear Layer')
+    plt.plot(intervention_steps, acc_history_dynamic, marker='s', linestyle='-', color='#2ecc71', linewidth=2, label='Dynamic Box')
+    
+    plt.title('Test-Time Intervention (TTI)\nImpatto della Correzione Umana sull\'Accuratezza', fontsize=14)
+    plt.xlabel('Numero di Concetti Corretti dall\'Esperto', fontsize=12)
+    plt.ylabel('Accuratezza (%)', fontsize=12)
+    
+    # Linee di riferimento opzionali (le tue accuratezze Oracle)
+    plt.axhline(y=100.0, color='#e74c3c', linestyle='--', alpha=0.5, label='Oracle Linear')
+    plt.axhline(y=74.0, color='#2ecc71', linestyle='--', alpha=0.5, label='Oracle Dynamic Box')
+    
+    plt.legend(loc='lower right', fontsize=10)
+    plt.grid(True, linestyle=':', alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+
+    return intervention_steps, acc_history_linear, acc_history_dynamic
 
 
 def plot_clinical_heatmap(tensor_matrix, concept_labels=None):
