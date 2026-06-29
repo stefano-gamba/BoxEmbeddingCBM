@@ -227,7 +227,10 @@ def sequential_training(
             # Formattiamo i concetti predetti
             c_pred_expanded = concept_preds.unsqueeze(-1) # shape: (batch_size, num_concepts, 1)
 
-            if info == "geometric":
+            if info == "dynamic_box":
+                scaled_info = concept_preds
+
+            elif info == "geometric":
                 # Nessun broadcasting complesso necessario! Passiamo direttamente i concetti.
                 # Shape: (batch_size, num_concepts)
                 scaled_info = concept_preds
@@ -281,7 +284,10 @@ def sequential_training(
                 
                 c_pred_expanded = concept_preds.unsqueeze(-1)
 
-                if info == "geometric":
+                if info == 'dynamic_box':
+                    scaled_info = concept_preds
+
+                elif info == "geometric":
                     # Nessun broadcasting complesso necessario! Passiamo direttamente i concetti.
                     # Shape: (batch_size, num_concepts)
                     scaled_info = concept_preds
@@ -390,7 +396,9 @@ def joint_training(
             c_pred_expanded = concept_preds.unsqueeze(-1)
             
             # 3. Mascheramento Soft (Scaling) con i box embedding
-            if info == "geometric":
+            if info == "dynamic_box":
+                scaled_info = concept_preds
+            elif info == "geometric":
                 # Nessun broadcasting complesso necessario! Passiamo direttamente i concetti.
                 # Shape: (batch_size, num_concepts)
                 scaled_info = concept_preds
@@ -450,7 +458,9 @@ def joint_training(
                 
                 c_pred_expanded = concept_preds.unsqueeze(-1)
 
-                if info == "geometric":
+                if info == 'dynamic_box':
+                    scaled_info = concept_preds
+                elif info == "geometric":
                     # Nessun broadcasting complesso necessario! Passiamo direttamente i concetti.
                     # Shape: (batch_size, num_concepts)
                     scaled_info = concept_preds
