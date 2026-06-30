@@ -432,3 +432,65 @@ def plot_clinical_heatmap(tensor_matrix, concept_labels=None):
     # Ottimizza gli spazi e mostra
     plt.tight_layout()
     plt.show()
+
+
+def plot_zsl_test_results(accuracy, preds, labels, unseen_classes_idx, class_names=None, figsize=(10, 8)):
+    """
+    Visualizza i risultati del test set limitando la Confusion Matrix alle sole classi Unseen.
+    
+    Argomenti:
+        accuracy: Valore float dell'accuratezza (restituito da test_zsl_cbm_classifier).
+        preds: Lista/Array delle predizioni (0-indexed, valori tra 0 e 49).
+        labels: Lista/Array delle etichette reali (0-indexed, valori appartenenti a unseen_classes_idx).
+        unseen_classes_idx: Lista degli indici (0-indexed) delle 10 classi di test.
+        class_names: Lista completa di stringhe con i nomi di tutte le 50 classi.
+    """
+    # 1. Calcolo della Confusion Matrix isolata per le sole classi Unseen
+    # Passando 'labels=unseen_classes_idx' forziamo l'estrazione di una matrice quadrata 10x10
+    cm = confusion_matrix(labels, preds, labels=unseen_classes_idx)
+    
+    # Normalizzazione per riga (gestendo matematicamente eventuali divisioni per zero)
+    row_sums = cm.sum(axis=1)[:, np.newaxis]
+    cm_norm = np.divide(cm.astype('float'), row_sums, out=np.zeros_like(cm, dtype=float), where=row_sums != 0)
+    
+    # 2. Estrazione dei soli nomi delle classi non viste per le etichette dei grafici
+    unseen_class_names = None
+    if class_names:
+        unseen_class_names = [class_names[idx] for idx in unseen_classes_idx]
+    
+    plt.figure(figsize=figsize)
+    
+    # Avendo ridotto la matrice a sole 10 classi, annot=True mostra i valori percentuali 
+    # all'interno dei quadrati in modo perfettamente leggibile e pulito
+    sns.heatmap(cm_norm, 
+                annot=True, 
+                fmt=".2f", 
+                cmap="Blues", 
+                xticklabels=unseen_class_names if unseen_class_names else "auto", 
+                yticklabels=unseen_class_names if unseen_class_names else "auto")
+    
+    plt.title(f"Confusion Matrix Normalizzata ZSL (Accuratezza Standard ZSL: {accuracy:.2f}%)", fontsize=14)
+    plt.ylabel('Classe Reale (Ground Truth - Unseen)')
+    plt.xlabel('Classe Predetta (Unseen)')
+    
+    if unseen_class_names:
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+    
+    plt.tight_layout()
+    plt.show()
+
+    # 3. Visualizzazione degli errori principali all'interno dello split ZSL
+    if class_names:
+        print("\nAnalisi degli Errori Principali nel Test Set Zero-Shot:")
+        errors = np.where(np.array(preds) != np.array(labels))[0]
+        if len(errors) > 0:
+            error_counts = {}
+            for idx in errors:
+                pair = (class_names[labels[idx]], class_names[preds[idx]])
+                error_counts[pair] = error_counts.get(pair, 0) + 1
+            
+            # Ordiniamo per frequenza di errore decrescente
+            sorted_errors = sorted(error_counts.items(), key=lambda x: x[1], reverse=True)
+            for (real, pred), count in sorted_errors[:5]: # Mostriamo i top 5 errori
+                print(f" - {count} volte: '{real}' è stato scambiato per '{pred}'")

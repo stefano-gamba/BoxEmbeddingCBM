@@ -290,3 +290,129 @@ def test_joint_cbm(
         logical_smoothing=logical_smoothing,
         alpha=alpha
     )
+
+def test_zsl_cbm_classifier(
+        model, 
+        test_dataloader, 
+        class_concept_matrix,
+        unseen_classes_idx,
+        boxes_tensor=None,
+        device="cpu",
+        info="boxes",
+        bipolar=False,
+        oracle=False,
+        concept_predictor=None,
+        smoothing_logic=False,
+        alpha=0.5, 
+        intervention_strategy=None,
+        k_interventions=5,          
+        group_indices=None
+    ):
+    """
+    Esegue il test del CBM in modalità Standard Zero-Shot Learning (SZSL).
+    Maschera forzatamente i logit delle classi Seen per obbligare il modello 
+    a scegliere solo tra le classi Unseen.
+    """
+    
+    model.eval()
+    model.to(device)
+    class_concept_matrix = class_concept_matrix.to(device)
+    
+    # --- GESTIONE SEPARATA DELLE MATRICI ---
+    if info == "rel_matrix" or info == "all" or smoothing_logic:
+        with torch.no_grad():
+            base_prob_matrix = calcola_matrice_probabilita(boxes_tensor).to(device)
+            
+            # 1. Matrice per lo Smoothing (Diagonale INTATTA)
+            smoothing_matrix = base_prob_matrix.clone()
+            
+            # 2. Matrice per il Modello (Diagonale AZZERATA, come in training)
+            model_prob_matrix = base_prob_matrix.clone()
+            model_prob_matrix.fill_diagonal_(0.0)
+    
+    test_correct = 0
+    test_samples = 0
+    all_preds = []
+    all_labels = []
+
+    all_concept_preds = []
+    all_concept_probs = []
+    all_concept_trues = []
+    
+    print("Inizio valutazione Zero-Shot (SZSL) sul Test Set...")
+    
+    with torch.no_grad():
+        for features, labels in test_dataloader:
+            features = features.to(device)
+            labels = labels.to(device).long().view(-1) - 1 # Assicuriamoci che siano 0-indexed
+            true_concepts_batch = class_concept_matrix[labels].float()
+            
+            if oracle:
+                concept_labels = class_concept_matrix[labels].float()
+            else:
+                with torch.no_grad():
+                    concept_labels, _  = concept_predictor(features)
+
+            
+            if intervention_strategy is not None:
+                mask = generate_intervention_mask(
+                    concept_probs=concept_labels, 
+                    strategy=intervention_strategy, 
+                    k=k_interventions,
+                    group_indices=group_indices
+                )
+                concept_labels = (concept_labels * (1 - mask)) + (true_concepts_batch * mask)
+
+            # --- APPLICAZIONE DELLO SMOOTHING E BINARIZZAZIONE ---
+            if smoothing_logic:
+                concept_labels = apply_logical_smoothing(concept_labels, smoothing_matrix, alpha)
+                concept_labels = (concept_labels > 0.5).float()
+            
+            binary_preds = (concept_labels > 0.5).float() 
+            all_concept_preds.extend(binary_preds.cpu().numpy())
+            all_concept_trues.extend(true_concepts_batch.cpu().numpy())
+            all_concept_probs.extend(concept_labels.cpu().numpy())
+
+            if bipolar:
+                concept_labels = concept_labels * 2 - 1
+            
+            c_true = concept_labels.unsqueeze(-1)
+
+            # --- CREAZIONE DELL'INPUT ---
+            if info == 'dynamic_box':
+                scaled_info = concept_labels
+            elif info == "geometric":
+                scaled_info = concept_labels
+            elif info == "boxes":
+                scaled_info = c_true * boxes_tensor.unsqueeze(0)
+            elif info == "rel_matrix":
+                joint_activation = concept_labels.unsqueeze(2) * concept_labels.unsqueeze(1)
+                scaled_info = joint_activation * model_prob_matrix.unsqueeze(0) 
+            elif info == 'concepts':
+                scaled_info = c_true
+            
+            # --- FORWARD PASS E MASCHERAMENTO ZSL ---
+            logits = model(scaled_info) # Shape: (batch_size, 50)
+            
+            # 1. Creiamo una maschera booleana piena di True
+            mask = torch.ones_like(logits, dtype=torch.bool)
+            
+            # 2. Settiamo a False solo le colonne corrispondenti alle classi Unseen (i nostri target validi)
+            mask[:, unseen_classes_idx] = False
+            
+            # 3. Applichiamo una penalità infinita alle classi Seen (dove mask è True)
+            logits[mask] = -float('inf')
+            
+            # 4. Argmax sceglierà forzatamente il logit più alto tra le sole 10 classi Unseen
+            preds = torch.argmax(logits, dim=1)
+            
+            # ----------------------------------------
+
+            test_correct += (preds == labels).sum().item()
+            test_samples += labels.size(0)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            
+    accuracy = (test_correct / test_samples) * 100
+    print(f"\nAccuratezza ZSL Totale: {accuracy:.2f}%")
+    return accuracy, np.array(all_preds), np.array(all_labels), np.array(all_concept_preds), np.array(all_concept_trues), np.array(all_concept_probs)
