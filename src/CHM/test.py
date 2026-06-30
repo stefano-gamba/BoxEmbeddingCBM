@@ -2,7 +2,7 @@ import torch
 from sklearn.metrics import classification_report
 from src.utils.box import calcola_matrice_probabilita, apply_logical_smoothing, apply_soft_logical_smoothing
 import numpy as np
-
+import torch.nn.functional as F
 from src.utils.intervention import generate_intervention_mask
 
 def test_cbm_classifier(
@@ -416,3 +416,53 @@ def test_zsl_cbm_classifier(
     accuracy = (test_correct / test_samples) * 100
     print(f"\nAccuratezza ZSL Totale: {accuracy:.2f}%")
     return accuracy, np.array(all_preds), np.array(all_labels), np.array(all_concept_preds), np.array(all_concept_trues), np.array(all_concept_probs)
+
+
+def test_zsl_cosine_similarity(concept_predictor, test_dataloader, class_concept_matrix, unseen_classes_idx, device="cpu"):
+    concept_predictor.eval()
+    concept_predictor.to(device)
+    class_concept_matrix = class_concept_matrix.to(device)
+    
+    # Estraiamo le firme GT solo per le 10 classi Unseen
+    # Shape: (10, num_concepts)
+    unseen_gt_matrix = class_concept_matrix[unseen_classes_idx].float()
+    
+    test_correct = 0
+    test_samples = 0
+    all_preds = []
+    all_labels_mapped = [] # Per la confusion matrix 10x10
+    
+    with torch.no_grad():
+        for features, labels in test_dataloader:
+            features = features.to(device)
+            labels = labels.to(device).long().view(-1) - 1
+            
+            # Mappiamo le label (0-49) al range (0-9) per confrontarle con l'argmax
+            # Questo funziona se unseen_classes_idx è ordinato
+            mapped_labels = torch.tensor([unseen_classes_idx.index(l.item()) for l in labels]).to(device)
+            
+            # 1. Predizione dei concetti dalla CNN
+            c_probs, _ = concept_predictor(features) # Shape: (batch, num_concepts)
+            
+            # 2. Calcolo della Cosine Similarity tra le predizioni e le GT Unseen
+            # c_probs: (batch, num_concepts) -> normalizzate
+            # unseen_gt_matrix: (10, num_concepts) -> normalizzate
+            c_probs_norm = F.normalize(c_probs, p=2, dim=1)
+            gt_norm = F.normalize(unseen_gt_matrix, p=2, dim=1)
+            
+            # Moltiplicazione matriciale per ottenere la similarità coseno
+            # Shape finale: (batch, 10)
+            similarities = torch.matmul(c_probs_norm, gt_norm.t())
+            
+            # 3. La classe predetta è quella con la similarità massima
+            preds = torch.argmax(similarities, dim=1)
+            
+            test_correct += (preds == mapped_labels).sum().item()
+            test_samples += labels.size(0)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels_mapped.extend(mapped_labels.cpu().numpy())
+            
+    accuracy = (test_correct / test_samples) * 100
+    print(f"Accuratezza ZSL (Cosine Similarity Baseline): {accuracy:.2f}%")
+    return accuracy, all_preds, all_labels_mapped
