@@ -19,7 +19,7 @@ import json
 
 
 def zsl_split_awa2_features(features_path, labels_path, classes_path, 
-                                 train_split_path, test_split_path, #val_split_path,
+                                 train_split_path, test_split_path, val_split_path,
                                  ):
     print("Caricamento in corso... (potrebbe richiedere qualche secondo)")
     
@@ -38,35 +38,44 @@ def zsl_split_awa2_features(features_path, labels_path, classes_path,
     # 3. Leggiamo i file di split (che contengono i nomi delle classi)
     with open(train_split_path, 'r') as f:
         train_classes = f.read().splitlines()
-        
-    #with open(val_split_path, 'r') as f:
-    #    val_classes = f.read().splitlines()
+
+    if val_split_path: 
+        with open(val_split_path, 'r') as f:
+            val_classes = f.read().splitlines()
         
     with open(test_split_path, 'r') as f:
         test_classes = f.read().splitlines()
         
     # 4. Convertiamo i nomi delle classi negli ID numerici corrispondenti
     train_ids = [class_name_to_id[name] for name in train_classes]
-    #val_ids = [class_name_to_id[name] for name in val_classes]
+    
+    if val_split_path:
+        val_ids = [class_name_to_id[name] for name in val_classes]
+        val_mask = np.isin(labels, val_ids)
+        X_val, y_val = features[val_mask], labels[val_mask]
+
     test_ids = [class_name_to_id[name] for name in test_classes]
     
     # 5. Creiamo le maschere booleane per filtrare gli array
     # np.isin controlla se ogni elemento in 'labels' è presente nella lista degli ID
     train_mask = np.isin(labels, train_ids)
-    #val_mask = np.isin(labels, val_ids)
     test_mask = np.isin(labels, test_ids)
     
     # 6. Splittiamo feature e label
     X_train, y_train = features[train_mask], labels[train_mask]
-    #X_val, y_val = features[val_mask], labels[val_mask]
     X_test, y_test = features[test_mask], labels[test_mask]
     
     print(f"Dimensioni totali feature: {features.shape}")
     print(f"Training set: {X_train.shape[0]} samples ({len(set(y_train))} classi)")
-    #print(f"Validation set: {X_val.shape[0]} samples (13 classi)")
+    if val_split_path:
+        print(f"Validation set: {X_val.shape[0]} samples (13 classi)")
     print(f"Test set: {X_test.shape[0]} samples ({len(set(y_test))} classi)")
     
-    return (X_train, y_train), (X_test, y_test), #(X_val, y_val)
+    if val_split_path:
+        return (X_train, y_train), (X_test, y_test), (X_val, y_val)
+    else:
+        return (X_train, y_train), (X_test, y_test)
+
 
 def classical_split_awa2_features(features_path, labels_path, test_size=0.2, val_size=0.1, random_seed=42):
     """
