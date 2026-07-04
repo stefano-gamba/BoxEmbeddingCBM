@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision.models import resnet18, ResNet18_Weights
+from torchvision.models import resnet18, resnet101, ResNet18_Weights, ResNet101_Weights
 from tqdm import tqdm
 
 class ConceptPredictor(nn.Module):
@@ -17,7 +17,7 @@ class ConceptPredictor(nn.Module):
         self.has_backbone = backbone
 
         if backbone:
-            self.backbone = resnet18(weights=ResNet18_Weights.DEFAULT)
+            self.backbone = resnet101(weights=ResNet101_Weights.DEFAULT)
             num_ftrs = self.backbone.fc.in_features
             self.backbone.fc = nn.Linear(num_ftrs, num_concepts)
         else:
