@@ -513,3 +513,147 @@ def joint_training(
         print(f"  VAL   -> Tot: {history['val']['tot_loss'][-1]:.4f} [Cls: {history['val']['cls_loss'][-1]:.4f} | C: {history['val']['c_loss'][-1]:.4f} | H: {history['val']['h_loss'][-1]:.4f}]\n")
 
     return history
+
+import torch
+import torch.nn.functional as F
+
+def joint_training_frozen_geometric(
+        classifier, 
+        concept_predictor, 
+        train_loader, 
+        val_loader, 
+        class_concept_matrix, 
+        prob_matrix,       # Passiamo direttamente la matrice di prob P(i|j)
+        optimizer,         # ATTENZIONE: Deve contenere SOLO concept_predictor.parameters()
+        criterion_cls,
+        concept_weights,   # Pesi gerarchici già calcolati
+        epochs, 
+        device,
+        lambda_c=1.0, 
+        gamma_h=0.5,
+        logit_temperature=1.0 # NUOVO: cruciale per la stabilità dei gradienti geometrici
+):
+    print("\n========== Joint Training: CNN guidata dall'Ontologia Geometrica Congelata ==========")
+    
+    # Il classificatore geometrico resta SEMPRE in eval mode
+    classifier.eval() 
+    classifier.to(device)
+    
+    concept_predictor.to(device)
+    concept_predictor.train()
+
+    history = {
+        'train': {'tot_loss': [], 'cls_loss': [], 'c_loss': [], 'h_loss': [], 'acc': []},
+        'val':   {'tot_loss': [], 'cls_loss': [], 'c_loss': [], 'h_loss': [], 'acc': []} 
+    }
+
+    for epoch in range(1, epochs + 1):
+        concept_predictor.train()
+        
+        train_tot_loss, train_cls_loss, train_c_loss, train_h_loss = 0.0, 0.0, 0.0, 0.0
+        train_correct, train_samples = 0, 0
+        
+        for features, labels in train_loader:
+            features = features.to(device)
+            labels = labels.to(device).long().view(-1) - 1 
+            c_gt = class_concept_matrix[labels].float().to(device)
+
+            optimizer.zero_grad()
+            
+            # 1. Forward Visivo (CNN)
+            c_probs, c_logits = concept_predictor(features)
+            
+            # 2. Calcolo Loss Visive e Logiche
+            loss_c = weighted_concept_loss(c_logits, c_gt, concept_weights)
+            loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
+
+            # 3. Forward Logico (Classificatore Geometrico Congelato)
+            # Passiamo direttamente le probabilità predette
+            with torch.no_grad():
+                # Nota: opzionalmente potresti voler calcolare il forward geometrico con gradienti.
+                # Se il classificatore geometrico usa operazioni differenziabili (come GumbelIntersection),
+                # NON usare torch.no_grad() qui, altrimenti perdi il gradiente di loss_y!
+                pass # Teniamo i gradienti attivi per permettere la backprop di loss_y sulla CNN
+            
+            # Assicuriamoci che i clamp non distruggano i gradienti nel classificatore
+            geom_logits = classifier(c_probs)
+            
+            # 4. Scaling della Temperatura (Evita gradienti esplosivi/morti)
+            scaled_geom_logits = geom_logits / logit_temperature
+            
+            # 5. Loss di Classificazione (Backpropaga attraverso la geometria fino alla CNN)
+            loss_y = criterion_cls(scaled_geom_logits, labels)
+            
+            # 6. Loss Totale e Backpropagation
+            loss = loss_y + (lambda_c * loss_c) + (gamma_h * loss_h)
+            
+            loss.backward()
+            
+            # Opzionale ma consigliato per stabilità: Gradient Clipping
+            torch.nn.utils.clip_grad_norm_(concept_predictor.parameters(), max_norm=1.0)
+            
+            optimizer.step()
+            
+            # Logging
+            train_cls_loss += loss_y.item()
+            train_c_loss   += loss_c.item()
+            train_h_loss   += loss_h.item()
+            train_tot_loss += loss.item()
+            
+            preds = torch.argmax(scaled_geom_logits, dim=1)
+            train_correct += (preds == labels).sum().item()
+            train_samples += labels.size(0)
+        
+        # --- Validation ---
+        concept_predictor.eval()
+        
+        val_tot_loss, val_cls_loss, val_c_loss, val_h_loss = 0.0, 0.0, 0.0, 0.0
+        val_correct, val_samples = 0, 0
+        
+        with torch.no_grad():
+            for features, labels in val_loader:
+                features = features.to(device)
+                labels = labels.to(device).long().view(-1) - 1
+                c_gt = class_concept_matrix[labels].float().to(device)
+                
+                c_probs, c_logits = concept_predictor(features)
+                
+                loss_c = weighted_concept_loss(c_logits, c_gt, concept_weights)
+                loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
+
+                geom_logits = classifier(c_probs)
+                scaled_geom_logits = geom_logits / logit_temperature
+                
+                loss_y = criterion_cls(scaled_geom_logits, labels)
+                loss = loss_y + (lambda_c * loss_c) + (gamma_h * loss_h)
+                
+                val_cls_loss += loss_y.item()
+                val_c_loss   += loss_c.item()
+                val_h_loss   += loss_h.item()
+                val_tot_loss += loss.item()
+                
+                preds = torch.argmax(scaled_geom_logits, dim=1)
+                val_correct += (preds == labels).sum().item()
+                val_samples += labels.size(0)
+                
+        # Logging finale epoca
+        t_batches = len(train_loader)
+        v_batches = len(val_loader)
+        
+        history['train']['tot_loss'].append(train_tot_loss / t_batches)
+        history['train']['cls_loss'].append(train_cls_loss / t_batches)
+        history['train']['c_loss'].append(train_c_loss / t_batches)
+        history['train']['h_loss'].append(train_h_loss / t_batches)
+        history['train']['acc'].append(train_correct / train_samples)
+        
+        history['val']['tot_loss'].append(val_tot_loss / v_batches)
+        history['val']['cls_loss'].append(val_cls_loss / v_batches)
+        history['val']['c_loss'].append(val_c_loss / v_batches)
+        history['val']['h_loss'].append(val_h_loss / v_batches)
+        history['val']['acc'].append(val_correct / val_samples)
+
+        print(f"Ep {epoch:3d}/{epochs} | Acc Train: {history['train']['acc'][-1]*100:.1f}% | Acc Val: {history['val']['acc'][-1]*100:.1f}%")
+        print(f"  TRAIN -> Tot: {history['train']['tot_loss'][-1]:.4f} [Cls: {history['train']['cls_loss'][-1]:.4f} | C: {history['train']['c_loss'][-1]:.4f} | H: {history['train']['h_loss'][-1]:.4f}]")
+        print(f"  VAL   -> Tot: {history['val']['tot_loss'][-1]:.4f} [Cls: {history['val']['cls_loss'][-1]:.4f} | C: {history['val']['c_loss'][-1]:.4f} | H: {history['val']['h_loss'][-1]:.4f}]\n")
+
+    return history

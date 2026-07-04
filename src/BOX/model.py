@@ -82,7 +82,10 @@ class BoxHierarchyModelJoint(nn.Module):
             soft_intersection=False, 
             bessel_volume=False, 
             volume_temperature=0.1, 
-            simple_init=True
+            simple_init=False,
+            intersection_temperature=0.001,
+            reg_weight=0.0,
+            init_delta=2.0
         ):
         super().__init__()
         self.dim = dim
@@ -94,29 +97,29 @@ class BoxHierarchyModelJoint(nn.Module):
         if not simple_init:
             # TABELLA 1: Box dei Concetti
             nn.init.uniform_(self.concept_embeddings.weight.data[:, :dim], -0.01, 0.01)
-            nn.init.constant_(self.concept_embeddings.weight.data[:, dim:], 2.0)
+            nn.init.constant_(self.concept_embeddings.weight.data[:, dim:], init_delta)
         
             # TABELLA 2: Box delle Classi
             nn.init.uniform_(self.class_embeddings.weight.data[:, :dim], -0.01, 0.01)
-            nn.init.constant_(self.class_embeddings.weight.data[:, dim:], 2.0)
+            nn.init.constant_(self.class_embeddings.weight.data[:, dim:], init_delta)
         else:
             nn.init.uniform_(self.concept_embeddings.weight, -0.5, 0.5)
             nn.init.uniform_(self.class_embeddings.weight, -0.5, 0.5)
         
         if soft_intersection:
-            self.intersection = GumbelIntersection(intersection_temperature=0.001)
+            self.intersection = GumbelIntersection(intersection_temperature=intersection_temperature)
         else:
             self.intersection = HardIntersection()
         
         if bessel_volume:
             self.volume = BesselApproxVolume(
                 volume_temperature=volume_temperature, 
-                intersection_temperature=0.01
+                intersection_temperature=intersection_temperature
             )
         else:
             self.volume = SoftVolume(volume_temperature=volume_temperature)
         
-        self.regularizer = L2SideBoxRegularizer(log_scale=False, weight=0.0)
+        self.regularizer = L2SideBoxRegularizer(log_scale=False, weight=reg_weight)
 
     def _compute_prob(self, box_container, box_contained):
         """Metodo di supporto per calcolare P(contained | container) = Vol(int) / Vol(contained)"""
