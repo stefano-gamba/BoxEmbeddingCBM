@@ -13,6 +13,7 @@ import pydicom
 from tqdm import tqdm
 import json
 
+
 #-------------------------
 # AWA2 DATASET
 #-------------------------
@@ -206,6 +207,73 @@ def parse_concepts(filepath):
             if len(parts) >= 2:
                 concepts.append(parts[1])
     return concepts
+
+
+class AwA2Dataset(Dataset):
+    def __init__(self, root_dir, split="train", transform=None):
+        """
+        Dataset per Animals with Attributes 2.
+        
+        Args:
+            root_dir (str): Il percorso alla cartella 'Animals_with_Attributes2' scompattata.
+            split (str): "train" (per le 40 classi) o "test" (per le 10 classi).
+            transform: Trasformazioni torchvision da applicare.
+        """
+        self.root_dir = root_dir
+        self.transform = transform
+        self.split = split
+        
+        # 1. Creiamo la mappatura globale Nome_Classe -> ID Globale (0-49)
+        # Leggiamo classes.txt che contiene righe come: "1 antelope\n2 grizzly+bear\n..."
+        classes_file = os.path.join(root_dir, 'classes.txt')
+        self.class2id = {}
+        with open(classes_file, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) == 2:
+                    # In AwA2 gli ID partono da 1. Sottraiamo 1 per PyTorch (0-49)
+                    class_id = int(parts[0]) - 1 
+                    class_name = parts[1]
+                    self.class2id[class_name] = class_id
+
+        # 2. Leggiamo lo split richiesto (trainclasses.txt o testclasses.txt)
+        split_file = os.path.join(root_dir, f'{split}classes.txt')
+        with open(split_file, 'r') as f:
+            # Lista delle classi da caricare in questo dataloader
+            self.target_classes = [line.strip() for line in f if line.strip()]
+
+        # 3. Esploriamo la cartella JPEGImages e raccogliamo i percorsi
+        self.samples = []
+        jpeg_dir = os.path.join(root_dir, 'JPEGImages')
+        
+        for class_name in self.target_classes:
+            class_dir = os.path.join(jpeg_dir, class_name)
+            if not os.path.isdir(class_dir):
+                print(f"Warning: Cartella non trovata per {class_name}")
+                continue
+                
+            # Recuperiamo l'ID globale, così il dataloader restituirà il numero giusto!
+            class_id = self.class2id[class_name]
+            
+            for img_name in os.listdir(class_dir):
+                if img_name.endswith('.jpg'):
+                    img_path = os.path.join(class_dir, img_name)
+                    self.samples.append((img_path, class_id))
+                    
+        print(f"Inizializzato split '{split}': {len(self.target_classes)} classi, {len(self.samples)} immagini.")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        img_path, label = self.samples[idx]
+        # Convertiamo in RGB per sicurezza (alcune immagini potrebbero essere in scala di grigi)
+        image = Image.open(img_path).convert('RGB')
+        
+        if self.transform:
+            image = self.transform(image)
+            
+        return image, label
     
 #-------------------------
 # OAI DATASET

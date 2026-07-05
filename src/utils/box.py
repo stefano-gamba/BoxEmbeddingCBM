@@ -504,3 +504,36 @@ def calculate_longitudinal_transitions(df: pd.DataFrame, concept_columns: list, 
             prob_matrix.iloc[i, j] = count_i_fut_and_j_pres / count_j_present
 
     return prob_matrix
+
+
+def estrai_matrice_probabilita(box_model, device="cpu"):
+    """
+    Calcola l'intera matrice P(i|j) per tutti gli 85 concetti.
+    Riga 'i' (Container) = Concetto Padre (es. Mammifero)
+    Colonna 'j' (Contained) = Concetto Figlio (es. Zanne)
+    
+    Il valore in prob_matrix[i, j] rappresenta P(i|j), 
+    ovvero la probabilità che l'immagine abbia il concetto 'i' 
+    sapendo che ha il concetto 'j'.
+    """
+    box_model.eval()
+    box_model.to(device)
+    
+    num_concepts = box_model.num_concepts # Nel tuo caso: 85
+    
+    # 1. Creiamo una griglia con tutte le combinazioni possibili (N x N)
+    # i_indices genererà [0,0,0..., 1,1,1..., 2,2,2...] (Le righe)
+    i_indices = torch.arange(num_concepts).unsqueeze(1).expand(num_concepts, num_concepts).flatten().to(device)
+    
+    # j_indices genererà [0,1,2..., 0,1,2..., 0,1,2...] (Le colonne)
+    j_indices = torch.arange(num_concepts).unsqueeze(0).expand(num_concepts, num_concepts).flatten().to(device)
+    
+    with torch.no_grad():
+        # 2. Passiamo tutti i 7225 (85x85) accoppiamenti al metodo nativo.
+        # Il metodo si aspetta (container, contained) -> (i, j)
+        p_values = box_model.forward_concepts(i_indices, j_indices)
+        
+        # 3. Riformattiamo il vettore risultante 1D in una matrice quadrata 2D (85x85)
+        prob_matrix = p_values.view(num_concepts, num_concepts)
+        
+    return prob_matrix
