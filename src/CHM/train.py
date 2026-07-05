@@ -555,7 +555,7 @@ def joint_training_frozen_geometric(
         
         for features, labels in train_loader:
             features = features.to(device)
-            labels = labels.to(device).long().view(-1) - 1 
+            labels = labels.to(device).long().view(-1)
             c_gt = class_concept_matrix[labels].float().to(device)
 
             optimizer.zero_grad()
@@ -614,7 +614,7 @@ def joint_training_frozen_geometric(
             with torch.no_grad():
                 for features, labels in val_loader:
                     features = features.to(device)
-                    labels = labels.to(device).long().view(-1) - 1
+                    labels = labels.to(device).long().view(-1)
                     c_gt = class_concept_matrix[labels].float().to(device)
                     
                     c_probs, c_logits = concept_predictor(features)
