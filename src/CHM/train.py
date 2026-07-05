@@ -610,35 +610,42 @@ def joint_training_frozen_geometric(
         val_tot_loss, val_cls_loss, val_c_loss, val_h_loss = 0.0, 0.0, 0.0, 0.0
         val_correct, val_samples = 0, 0
         
-        with torch.no_grad():
-            for features, labels in val_loader:
-                features = features.to(device)
-                labels = labels.to(device).long().view(-1) - 1
-                c_gt = class_concept_matrix[labels].float().to(device)
-                
-                c_probs, c_logits = concept_predictor(features)
-                
-                loss_c = weighted_concept_loss(c_logits, c_gt, concept_weights)
-                loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
+        if val_loader:
+            with torch.no_grad():
+                for features, labels in val_loader:
+                    features = features.to(device)
+                    labels = labels.to(device).long().view(-1) - 1
+                    c_gt = class_concept_matrix[labels].float().to(device)
+                    
+                    c_probs, c_logits = concept_predictor(features)
+                    
+                    loss_c = weighted_concept_loss(c_logits, c_gt, concept_weights)
+                    loss_h = hierarchical_concept_loss(c_probs, prob_matrix)
 
-                geom_logits = classifier(c_probs)
-                scaled_geom_logits = geom_logits / logit_temperature
-                
-                loss_y = criterion_cls(scaled_geom_logits, labels)
-                loss = loss_y + (lambda_c * loss_c) + (gamma_h * loss_h)
-                
-                val_cls_loss += loss_y.item()
-                val_c_loss   += loss_c.item()
-                val_h_loss   += loss_h.item()
-                val_tot_loss += loss.item()
-                
-                preds = torch.argmax(scaled_geom_logits, dim=1)
-                val_correct += (preds == labels).sum().item()
-                val_samples += labels.size(0)
+                    geom_logits = classifier(c_probs)
+                    scaled_geom_logits = geom_logits / logit_temperature
+                    
+                    loss_y = criterion_cls(scaled_geom_logits, labels)
+                    loss = loss_y + (lambda_c * loss_c) + (gamma_h * loss_h)
+                    
+                    val_cls_loss += loss_y.item()
+                    val_c_loss   += loss_c.item()
+                    val_h_loss   += loss_h.item()
+                    val_tot_loss += loss.item()
+                    
+                    preds = torch.argmax(scaled_geom_logits, dim=1)
+                    val_correct += (preds == labels).sum().item()
+                    val_samples += labels.size(0)
+
+            v_batches = len(val_loader)
+            history['val']['tot_loss'].append(val_tot_loss / v_batches)
+            history['val']['cls_loss'].append(val_cls_loss / v_batches)
+            history['val']['c_loss'].append(val_c_loss / v_batches)
+            history['val']['h_loss'].append(val_h_loss / v_batches)
+            history['val']['acc'].append(val_correct / val_samples)
                 
         # Logging finale epoca
         t_batches = len(train_loader)
-        v_batches = len(val_loader)
         
         history['train']['tot_loss'].append(train_tot_loss / t_batches)
         history['train']['cls_loss'].append(train_cls_loss / t_batches)
@@ -646,14 +653,13 @@ def joint_training_frozen_geometric(
         history['train']['h_loss'].append(train_h_loss / t_batches)
         history['train']['acc'].append(train_correct / train_samples)
         
-        history['val']['tot_loss'].append(val_tot_loss / v_batches)
-        history['val']['cls_loss'].append(val_cls_loss / v_batches)
-        history['val']['c_loss'].append(val_c_loss / v_batches)
-        history['val']['h_loss'].append(val_h_loss / v_batches)
-        history['val']['acc'].append(val_correct / val_samples)
-
-        print(f"Ep {epoch:3d}/{epochs} | Acc Train: {history['train']['acc'][-1]*100:.1f}% | Acc Val: {history['val']['acc'][-1]*100:.1f}%")
+        
+        if val_loader:
+            print(f"Ep {epoch:3d}/{epochs} | Acc Train: {history['train']['acc'][-1]*100:.1f}% | Acc Val: {history['val']['acc'][-1]*100:.1f}%")
+        else:
+            print(f"Ep {epoch:3d}/{epochs} | Acc Train: {history['train']['acc'][-1]*100:.1f}% | No Val Loader")
         print(f"  TRAIN -> Tot: {history['train']['tot_loss'][-1]:.4f} [Cls: {history['train']['cls_loss'][-1]:.4f} | C: {history['train']['c_loss'][-1]:.4f} | H: {history['train']['h_loss'][-1]:.4f}]")
-        print(f"  VAL   -> Tot: {history['val']['tot_loss'][-1]:.4f} [Cls: {history['val']['cls_loss'][-1]:.4f} | C: {history['val']['c_loss'][-1]:.4f} | H: {history['val']['h_loss'][-1]:.4f}]\n")
+        if val_loader:
+            print(f"  VAL   -> Tot: {history['val']['tot_loss'][-1]:.4f} [Cls: {history['val']['cls_loss'][-1]:.4f} | C: {history['val']['c_loss'][-1]:.4f} | H: {history['val']['h_loss'][-1]:.4f}]\n")
 
     return history
