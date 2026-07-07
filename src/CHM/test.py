@@ -344,7 +344,7 @@ def test_zsl_cbm_classifier(
     with torch.no_grad():
         for features, labels in test_dataloader:
             features = features.to(device)
-            labels = labels.to(device).long().view(-1) - 1 # Assicuriamoci che siano 0-indexed
+            labels = labels.to(device).long().view(-1) # Assicuriamoci che siano 0-indexed
             true_concepts_batch = class_concept_matrix[labels].float()
             
             if oracle:
