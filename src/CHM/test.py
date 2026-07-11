@@ -306,7 +306,8 @@ def test_zsl_cbm_classifier(
         alpha=0.5, 
         intervention_strategy=None,
         k_interventions=5,          
-        group_indices=None
+        group_indices=None,
+        binary_threshold=0.5
     ):
     """
     Esegue il test del CBM in modalità Standard Zero-Shot Learning (SZSL).
@@ -366,9 +367,9 @@ def test_zsl_cbm_classifier(
             # --- APPLICAZIONE DELLO SMOOTHING E BINARIZZAZIONE ---
             if smoothing_logic:
                 concept_labels = apply_logical_smoothing(concept_labels, smoothing_matrix, alpha)
-                concept_labels = (concept_labels > 0.5).float()
+                concept_labels = (concept_labels > binary_threshold).float()
             
-            binary_preds = (concept_labels > 0.5).float() 
+            binary_preds = (concept_labels > binary_threshold).float() 
             all_concept_preds.extend(binary_preds.cpu().numpy())
             all_concept_trues.extend(true_concepts_batch.cpu().numpy())
             all_concept_probs.extend(concept_labels.cpu().numpy())
