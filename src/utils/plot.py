@@ -332,11 +332,12 @@ def evaluate_tti_curves(
                 
                 # Metodo: Correggiamo i concetti con maggiore incertezza (più vicini a 0.5)
                 # Calcoliamo la distanza da 0.5 (più piccola = più incerta)
-                uncertainty = -torch.abs(c_probs - 0.5) 
+                #uncertainty = -torch.abs(c_probs - 0.5)
+                prediction_error = torch.abs(c_probs - c_gt)
                 
                 # Troviamo gli indici dei 'num_corr' concetti più incerti
                 if num_corr > 0:
-                    _, top_indices = torch.topk(uncertainty, min(num_corr, num_concepts), dim=1)
+                    _, top_indices = torch.topk(prediction_error, min(num_corr, num_concepts), dim=1)
                     
                     # Sostituiamo le probabilità incerte con la Ground Truth
                     # (L'umano dice: "Questo è 1" o "Questo è 0")
@@ -380,7 +381,7 @@ def evaluate_tti_curves(
     
     # Linee di riferimento opzionali (le tue accuratezze Oracle)
     plt.axhline(y=100.0, color='#e74c3c', linestyle='--', alpha=0.5, label='Oracle Linear')
-    plt.axhline(y=74.0, color='#2ecc71', linestyle='--', alpha=0.5, label='Oracle Dynamic Box')
+    plt.axhline(y=94.3, color='#2ecc71', linestyle='--', alpha=0.5, label='Oracle Dynamic Box')
     
     plt.legend(loc='lower right', fontsize=10)
     plt.grid(True, linestyle=':', alpha=0.6)
