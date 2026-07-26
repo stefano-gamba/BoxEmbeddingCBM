@@ -10,6 +10,30 @@ def train_concept_predictor(model, train_loader, val_loader, incidence_matrix,
     
     model.to(device)
     incidence_matrix = incidence_matrix.to(device)
+    num_classes = incidence_matrix.size(0)
+
+    # =================================================================
+    # --- AUTO-DETECT 0-INDEXING ---
+    # =================================================================
+    print("Esecuzione auto-detect dell'indicizzazione delle label...")
+    
+    # Preleviamo un batch per un controllo rapido
+    _, sample_y = next(iter(train_loader))
+    
+    # Se troviamo uno 0 nel primo batch, è palese che sia 0-indexed
+    if sample_y.min() == 0:
+        needs_shift = False
+    # Se troviamo un ID pari al numero totale di classi (es. 50), è 1-indexed
+    elif sample_y.max() == num_classes:
+        needs_shift = True
+    else:
+        # Caso limite: il primo batch è ambiguo. 
+        # Cerchiamo il minimo assoluto scansionando velocemente il loader.
+        min_label = min([y_batch.min().item() for _, y_batch in train_loader])
+        needs_shift = (min_label == 1)
+        
+    print(f"-> Risultato: Dataset {'1-INDEXED (Verrà sottratto 1 a ogni batch)' if needs_shift else '0-INDEXED (Nessuna modifica)'}\n")
+    # =================================================================
     
     history = {
         'train': {'tot_loss': [], 'acc': []},
@@ -22,7 +46,9 @@ def train_concept_predictor(model, train_loader, val_loader, incidence_matrix,
         train_loss, train_correct, total_elements = 0.0, 0, 0
         
         for h, y in train_loader:
-            h, y = h.to(device), y.to(device).long().view(-1) - 1 # Assumiamo che le classi siano 1-indexed, quindi convertiamo a 0-indexed
+            h, y = h.to(device), y.to(device).long().view(-1)
+            if needs_shift:
+                y = y - 1
             
             # Mappiamo le label della classe ai concetti tramite la matrice 
             c_gt = incidence_matrix[y].float() 
@@ -48,7 +74,10 @@ def train_concept_predictor(model, train_loader, val_loader, incidence_matrix,
         
             with torch.no_grad():
                 for h, y in val_loader:
-                    h, y = h.to(device), y.to(device).long().view(-1) - 1
+                    h, y = h.to(device), y.to(device).long().view(-1)
+                    if needs_shift:
+                        y = y - 1
+                    
                     c_gt = incidence_matrix[y].float()
                     
                     _, c_logits = model(h)
