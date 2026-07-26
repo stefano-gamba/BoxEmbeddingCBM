@@ -119,6 +119,12 @@ def test_cbm_classifier(
             
     accuracy = (test_correct / test_samples) * 100
     print(f"\nAccuratezza Totale: {accuracy:.2f}%")
+
+    if class_concept_matrix is not None:
+            print("\nClassification Report (prime 10 classi):")
+            labels_to_print = list(range(min(10, class_concept_matrix.size(0))))
+            print(classification_report(all_labels, all_preds, labels=labels_to_print, zero_division=0))
+
     return accuracy, np.array(all_preds), np.array(all_labels), np.array(all_concept_preds), np.array(all_concept_trues), np.array(all_concept_probs)
 
 
@@ -416,6 +422,12 @@ def test_zsl_cbm_classifier(
             
     accuracy = (test_correct / test_samples) * 100
     print(f"\nAccuratezza ZSL Totale: {accuracy:.2f}%")
+
+    if class_concept_matrix is not None:
+            print("\nClassification Report (prime 10 classi):")
+            labels_to_print = list(range(min(10, class_concept_matrix.size(0))))
+            print(classification_report(all_labels, all_preds, labels=labels_to_print, zero_division=0))
+            
     return accuracy, np.array(all_preds), np.array(all_labels), np.array(all_concept_preds), np.array(all_concept_trues), np.array(all_concept_probs)
 
 
@@ -436,7 +448,7 @@ def test_zsl_cosine_similarity(concept_predictor, test_dataloader, class_concept
     with torch.no_grad():
         for features, labels in test_dataloader:
             features = features.to(device)
-            labels = labels.to(device).long().view(-1) - 1
+            labels = labels.to(device).long().view(-1)
             
             # Mappiamo le label (0-49) al range (0-9) per confrontarle con l'argmax
             # Questo funziona se unseen_classes_idx è ordinato
