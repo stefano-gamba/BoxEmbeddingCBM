@@ -117,9 +117,9 @@ def plot_concept_error_heatmap(labels, concept_preds, concept_trues, class_names
                 xticklabels=concept_names if concept_names else "auto", 
                 yticklabels=class_names if class_names else "auto")
     
-    plt.title("Tasso di Errore dei Concetti per Classe", fontsize=15)
-    plt.ylabel('Classe')
-    plt.xlabel('Concetti')
+    plt.title("Concept Error Rate per Class", fontsize=15)
+    plt.ylabel('Classes')
+    plt.xlabel('Concepts')
     
     if concept_names:
         plt.xticks(rotation=90, ha='center')
@@ -202,9 +202,9 @@ def plot_concept_uncertainty_heatmap(labels, concept_probs, class_names=None, co
                 xticklabels=concept_names if concept_names else "auto", 
                 yticklabels=class_names if class_names else "auto")
     
-    plt.title("Mappa dell'Incertezza: Concetti predetti vicini a 0.5", fontsize=15)
-    plt.ylabel('Classe Reale')
-    plt.xlabel('Concetti')
+    plt.title("Uncertainty Map: Predicted Concepts close to 0.5", fontsize=15)
+    plt.ylabel('Classes')
+    plt.xlabel('Concepts')
     
     if concept_names:
         plt.xticks(rotation=90, ha='center')
@@ -264,14 +264,14 @@ def plot_intervention_curve(
 
     # Plot dei risultati
     plt.figure(figsize=(10, 6))
-    plt.plot(k_values, results_random, marker='o', label='Intervento Casuale')
-    plt.plot(k_values, results_uncertain, marker='s', label='Intervento su Incertezza')
+    plt.plot(k_values, results_random, marker='o', label='Casual Intervention')
+    plt.plot(k_values, results_uncertain, marker='s', label='Intervention on Uncertainty')
     plt.plot(k_values, results_random_feedback, marker='^', label='Intervento Casuale con Feedback')
     plt.plot(k_values, results_uncertain_feedback, marker='v', label='Intervento su Incertezza con Feedback')
 
     plt.title('Test Time Intervention Curve')
-    plt.xlabel('Numero di Concetti Corretti (k)')
-    plt.ylabel('Accuratezza del Classificatore (%)')
+    plt.xlabel('Number of Corrected Concepts (k)')
+    plt.ylabel('Classifier Accuracy (%)')
     plt.grid(True)
     plt.legend()
     plt.show()
@@ -375,9 +375,9 @@ def evaluate_tti_curves(
     plt.plot(intervention_steps, acc_history_linear, marker='o', linestyle='-', color='#e74c3c', linewidth=2, label='Linear Layer')
     plt.plot(intervention_steps, acc_history_dynamic, marker='s', linestyle='-', color='#2ecc71', linewidth=2, label='Dynamic Box')
     
-    plt.title('Test-Time Intervention (TTI)\nImpatto della Correzione Umana sull\'Accuratezza', fontsize=14)
-    plt.xlabel('Numero di Concetti Corretti dall\'Esperto', fontsize=12)
-    plt.ylabel('Accuratezza (%)', fontsize=12)
+    plt.title('Test-Time Intervention (TTI)', fontsize=14)
+    plt.xlabel('Numbero of Corrected Concepts', fontsize=12)
+    plt.ylabel('Accuracy (%)', fontsize=12)
     
     # Linee di riferimento opzionali (le tue accuratezze Oracle)
     plt.axhline(y=100.0, color='#e74c3c', linestyle='--', alpha=0.5, label='Oracle Linear')
@@ -434,13 +434,12 @@ def plot_clinical_heatmap(tensor_matrix, concept_labels=None):
     plt.tight_layout()
     plt.show()
 
-
-def plot_zsl_test_results(accuracy, preds, labels, unseen_classes_idx, class_names=None, figsize=(10, 8)):
+def plot_zsl_test_results(preds, labels, unseen_classes_idx, class_names=None, figsize=(10, 8)):
     """
     Visualizza i risultati del test set limitando la Confusion Matrix alle sole classi Unseen.
+    Calcola e mostra dinamicamente la Standard ZSL Accuracy.
     
     Argomenti:
-        accuracy: Valore float dell'accuratezza (restituito da test_zsl_cbm_classifier).
         preds: Lista/Array delle predizioni (0-indexed, valori tra 0 e 49).
         labels: Lista/Array delle etichette reali (0-indexed, valori appartenenti a unseen_classes_idx).
         unseen_classes_idx: Lista degli indici (0-indexed) delle 10 classi di test.
@@ -453,6 +452,9 @@ def plot_zsl_test_results(accuracy, preds, labels, unseen_classes_idx, class_nam
     # Normalizzazione per riga (gestendo matematicamente eventuali divisioni per zero)
     row_sums = cm.sum(axis=1)[:, np.newaxis]
     cm_norm = np.divide(cm.astype('float'), row_sums, out=np.zeros_like(cm, dtype=float), where=row_sums != 0)
+    
+    # -> CALCOLO STANDARD ZSL ACCURACY: Media della diagonale della matrice normalizzata
+    standard_zsl_accuracy = np.mean(np.diag(cm_norm)) * 100
     
     # 2. Estrazione dei soli nomi delle classi non viste per le etichette dei grafici
     unseen_class_names = None
@@ -470,9 +472,10 @@ def plot_zsl_test_results(accuracy, preds, labels, unseen_classes_idx, class_nam
                 xticklabels=unseen_class_names if unseen_class_names else "auto", 
                 yticklabels=unseen_class_names if unseen_class_names else "auto")
     
-    plt.title(f"Confusion Matrix Normalizzata ZSL (Accuratezza Standard ZSL: {accuracy:.2f}%)", fontsize=14)
-    plt.ylabel('Classe Reale (Ground Truth - Unseen)')
-    plt.xlabel('Classe Predetta (Unseen)')
+    # Inseriamo la Standard ZSL Accuracy calcolata direttamente nel titolo
+    plt.title(f"Confusion Matrix Normalized ZSL (Standard ZSL Accuracy: {standard_zsl_accuracy:.2f}%)", fontsize=14)
+    plt.ylabel('Ground Truth Class - Unseen')
+    plt.xlabel('Predicted Class - Unseen')
     
     if unseen_class_names:
         plt.xticks(rotation=45, ha='right')
