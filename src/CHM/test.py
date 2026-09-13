@@ -444,11 +444,15 @@ def test_zsl_cosine_similarity(concept_predictor, test_dataloader, class_concept
     test_samples = 0
     all_preds = []
     all_labels_mapped = [] # Per la confusion matrix 10x10
+    all_concept_preds = []
+    all_concept_probs = []
+    all_concept_trues = []
     
     with torch.no_grad():
         for features, labels in test_dataloader:
             features = features.to(device)
             labels = labels.to(device).long().view(-1)
+            true_concepts_batch = class_concept_matrix[labels].float()
             
             # Mappiamo le label (0-49) al range (0-9) per confrontarle con l'argmax
             # Questo funziona se unseen_classes_idx è ordinato
@@ -475,7 +479,9 @@ def test_zsl_cosine_similarity(concept_predictor, test_dataloader, class_concept
             
             all_preds.extend(preds.cpu().numpy())
             all_labels_mapped.extend(mapped_labels.cpu().numpy())
+            all_concept_probs.extend(c_probs.cpu().numpy())
+            all_concept_trues.extend(true_concepts_batch.cpu().numpy())
             
     accuracy = (test_correct / test_samples) * 100
     print(f"Accuratezza ZSL (Cosine Similarity Baseline): {accuracy:.2f}%")
-    return accuracy, all_preds, all_labels_mapped
+    return accuracy, all_preds, all_labels_mapped, all_concept_trues, all_concept_probs
