@@ -431,7 +431,7 @@ def test_zsl_cbm_classifier(
     return accuracy, np.array(all_preds), np.array(all_labels), np.array(all_concept_preds), np.array(all_concept_trues), np.array(all_concept_probs)
 
 
-def test_zsl_cosine_similarity(concept_predictor, test_dataloader, class_concept_matrix, unseen_classes_idx, device="cpu"):
+def test_zsl_cosine_similarity(concept_predictor, test_dataloader, class_concept_matrix, unseen_classes_idx, device="cpu", binary_threshold=0.5):
     concept_predictor.eval()
     concept_predictor.to(device)
     class_concept_matrix = class_concept_matrix.to(device)
@@ -481,7 +481,9 @@ def test_zsl_cosine_similarity(concept_predictor, test_dataloader, class_concept
             all_labels_mapped.extend(mapped_labels.cpu().numpy())
             all_concept_probs.extend(c_probs.cpu().numpy())
             all_concept_trues.extend(true_concepts_batch.cpu().numpy())
+            binary_preds = (c_probs > binary_threshold).float() 
+            all_concept_preds.extend(binary_preds.cpu().numpy())
             
     accuracy = (test_correct / test_samples) * 100
     print(f"Accuratezza ZSL (Cosine Similarity Baseline): {accuracy:.2f}%")
-    return accuracy, all_preds, all_labels_mapped, all_concept_trues, all_concept_probs
+    return accuracy, np.array(all_preds), np.array(all_labels_mapped), np.array(all_concept_preds), np.array(all_concept_trues), np.array(all_concept_probs)
