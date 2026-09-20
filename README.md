@@ -3,7 +3,7 @@ Box embedding integrated in CBM architecture to take advantage of concept hierar
 
 # Instruction to reproduce the experiments
 
-## Download awa2 dataset
+## 1. Download awa2 dataset
 
 you can download the dataset directly from the website https://cvml.ista.ac.at/AwA2/
 
@@ -15,7 +15,7 @@ python /scripts/download_awa2.py --target [choice]
 
 where choice can be 'dataset', 'features', 'labels', 'all'
 
-## Manipulation of awa2 dataset
+## 2. Manipulation of awa2 dataset
 
 To reproduce the experiments as described in Chapther 5 of the Thesis you should launch the following command:
 
