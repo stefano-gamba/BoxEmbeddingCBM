@@ -171,13 +171,13 @@ def explain_prediction(
             if info_type == 'boxes':
                 box_dim = boxes_tensor.shape[1]
                 target_contributions = contributions.view(num_concepts, box_dim).sum(dim=1)
-                title = f"Top e Bottom {top_k} Contributi dei Concetti (Box)"
+                title = f"{top_k} Top and Bottom Concepts Contribution"
             elif info_type == 'rel_matrix':
                 target_contributions = contributions
-                title = f"Top e Bottom {top_k} Contributi Relazionali"
+                title = f"Top and Bottom {top_k} Contributi Relazionali"
             elif info_type == 'concepts':
                 target_contributions = contributions
-                title = f"Top e Bottom {top_k} Contributi dei Concetti (Presenza)"
+                title = f"{top_k} Top and Bottom Concepts Contribution"
 
         # ==========================================
         # 5. Aggregazione ed Estrazione
@@ -187,13 +187,13 @@ def explain_prediction(
 
         def format_label(concept_idx, label_string):
             is_present_gt = concept_gt_original[concept_idx].item() > 0.5
-            gt_text = "GT: Presente" if is_present_gt else "GT: Assente"
+            gt_text = "GT: Present" if is_present_gt else "GT: Absent"
             
             if concept_predictor is not None:
                 pred_prob = concept_base[concept_idx].item()
                 return f"{label_string} (Pred: {pred_prob:.2f} | {gt_text})"
             else:
-                status_text = "Presente" if is_present_gt else "Assente"
+                status_text = "Present" if is_present_gt else "Absent"
                 return f"{label_string} ({status_text})"
 
         k_to_extract = min(top_k, target_contributions.size(0))
@@ -235,8 +235,8 @@ def explain_prediction(
     plt.axvline(0, color='black', linewidth=0.8) 
     
     mode_text = "Modalità: SEQUENTIAL (Usa probabilità predette)" if concept_predictor else "Modalità: ORACLE (Usa Ground Truth)"
-    plt.xlabel('Impatto sul Logit (Base Logit - Ablated Logit)' if info_type == 'dynamic_box' else 'Contributo al Logit (Peso * Feature)')
-    plt.title(f"{title}\nPredizione: {class_names[pred_idx]} | Reale: {class_names[label_idx]}\n{mode_text}")
+    plt.xlabel('Impact on Logit' if info_type == 'dynamic_box' else 'Contribute to Logit (Weight * Feature)')
+    plt.title(f"{title}\nPrediction: {class_names[pred_idx]} | Real: {class_names[label_idx]}\n")
 
     plt.tight_layout()
     plt.show()
@@ -283,7 +283,7 @@ def plot_logical_violations(model_linear, class_concept_matrix, class_names, con
     # Stampa un esempio concreto della classe peggiore
     worst_class = worst_classes_idx[0]
     print(f"--- ANALISI DELLA CLASSE PEGGIORE: {class_names[worst_class]} ---")
-    print("Concetti PRESENTI (GT=1) ma PENALIZZATI dal Linear Layer (Pesi < 0):")
+    print("PRESENT Concepts (GT=1) but PENALIZED by Linear Layer (Weights < 0):")
     for c in range(num_concepts):
         if fn_violations[worst_class, c]:
             print(f"  - {concept_names[c]} (Peso: {weights[worst_class, c]:.3f})")
@@ -298,11 +298,11 @@ def plot_logical_violations(model_linear, class_concept_matrix, class_names, con
     width = 0.35
     
     fig, ax = plt.subplots(figsize=(12, 6))
-    rects1 = ax.bar(x - width/2, fn_counts, width, label='Penalizza concetti veri (FN Logici)', color='#e74c3c')
-    rects2 = ax.bar(x + width/2, fp_counts, width, label='Premia concetti falsi (FP Logici)', color='#f39c12')
+    rects1 = ax.bar(x - width/2, fn_counts, width, label='Penalizes true concepts (Logical FN)', color='#e74c3c')
+    rects2 = ax.bar(x + width/2, fp_counts, width, label='Rewards false concepts (Logical FP)', color='#f39c12')
     
-    ax.set_ylabel('Numero di Violazioni Logiche (Pesi Sbagliati)')
-    ax.set_title(f'Le {top_k} Classi con più Shortcut Learning nel Linear Layer\n(Il Dynamic Box ha 0 violazioni ovunque)')
+    ax.set_ylabel('Number of Logical Violations (Wrong Weights)')
+    ax.set_title(f'{top_k} Classes with more Logical Violations')
     ax.set_xticks(x)
     ax.set_xticklabels(worst_classes_names, rotation=45, ha='right')
     ax.legend()

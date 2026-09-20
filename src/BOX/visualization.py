@@ -52,9 +52,9 @@ def visualize_concept_hierarchy(model, id2concept, concept2id, concept_i, concep
         ax1.plot([z_f[i], Z_f[i]], [i, i], color='teal', linewidth=3, label='j' if i==0 else "")
         
     ax1.set_yticks(y_pos)
-    ax1.set_ylabel("Dimensioni")
-    ax1.set_xlabel("Coordinate")
-    ax1.set_title("Intervalli (min/max) per ogni dimensione")
+    ax1.set_ylabel("Dimensions")
+    ax1.set_xlabel("Coordinates")
+    ax1.set_title("Range (min/max) for each dimension")
     ax1.legend()
 
     # ==========================================
@@ -83,9 +83,9 @@ def visualize_concept_hierarchy(model, id2concept, concept2id, concept_i, concep
     ax2.set_xlim(min(z_p[dim_x], z_f[dim_x]) - margin_x, max(Z_p[dim_x], Z_f[dim_x]) + margin_x)
     ax2.set_ylim(min(z_p[dim_y], z_f[dim_y]) - margin_y, max(Z_p[dim_y], Z_f[dim_y]) + margin_y)
     
-    ax2.set_xlabel(f"Dimensione {dim_x}")
-    ax2.set_ylabel(f"Dimensione {dim_y}")
-    ax2.set_title("Proiezione Box in 2D")
+    ax2.set_xlabel(f"Dimension {dim_x}")
+    ax2.set_ylabel(f"Dimension {dim_y}")
+    ax2.set_title("Box Projection in 2D")
     ax2.legend()
     
     plt.tight_layout()
@@ -126,25 +126,25 @@ def visualize_heatmap_compare(model, dataset, concept2id, id2concept):
     
     # 3. Creazione del plot affiancato
     fig, axes = plt.subplots(1, 2, figsize=(20, 8))
-    fig.suptitle("Confronto Heatmap: P(i | j) - Probabilità che 'j' sia contenuto in 'i'", fontsize=16)
+    fig.suptitle(" P(i | j) - Probability that 'j' is contained in 'i'", fontsize=16)
     
     # Heatmap Ground Truth
     sns.heatmap(matrice_gt, 
                 xticklabels=labels, yticklabels=labels, 
                 ax=axes[0], cmap='Blues', 
-                cbar_kws={'label': 'Probabilità'})
-    axes[0].set_title("Ground Truth (Dati JSON)")
-    axes[0].set_xlabel("Concetto j (Figlio / Contenuto)")
-    axes[0].set_ylabel("Concetto i (Padre / Contenitore)")
+                cbar_kws={'label': 'Probability'})
+    axes[0].set_title("Ground Truth")
+    axes[0].set_xlabel("Concept j (Child / Contained)")
+    axes[0].set_ylabel("Concept i (Parent / Container)")
     
     # Heatmap Predizioni Modello
     sns.heatmap(matrice_pred, 
                 xticklabels=labels, yticklabels=labels, 
                 ax=axes[1], cmap='Blues', 
-                cbar_kws={'label': 'Probabilità'})
-    axes[1].set_title("Predizioni del Modello")
-    axes[1].set_xlabel("Concetto j (Figlio / Contenuto)")
-    axes[1].set_ylabel("Concetto i (Padre / Contenitore)")
+                cbar_kws={'label': 'Probability'})
+    axes[1].set_title("Model Prediction")
+    axes[1].set_xlabel("Concept j (Child / Contained)")
+    axes[1].set_ylabel("Concept i (Parent / Container)")
     
     # Ruotiamo le etichette per renderle leggibili
     plt.setp(axes[0].get_xticklabels(), rotation=90, ha="right", fontsize=8)

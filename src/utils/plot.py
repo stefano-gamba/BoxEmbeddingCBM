@@ -376,7 +376,7 @@ def evaluate_tti_curves(
     plt.plot(intervention_steps, acc_history_dynamic, marker='s', linestyle='-', color='#2ecc71', linewidth=2, label='Dynamic Box')
     
     plt.title('Test-Time Intervention (TTI)', fontsize=14)
-    plt.xlabel('Numbero of Corrected Concepts', fontsize=12)
+    plt.xlabel('Number of Corrected Concepts', fontsize=12)
     plt.ylabel('Accuracy (%)', fontsize=12)
     
     # Linee di riferimento opzionali (le tue accuratezze Oracle)

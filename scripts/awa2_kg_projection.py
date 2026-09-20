@@ -335,24 +335,48 @@ def fuse_probability_matrices(df_graph, df_data):
     return df_fused
 
 
-def visualize_tree(G, original_concepts,output_file="gerarchia_concetti.pdf"):
-    """Disegna il grafo e lo salva in PDF."""
+def visualize_tree(G, original_concepts, output_file="gerarchia_concetti.pdf", target_leaf='hands'):
+    """
+    Disegna il grafo e lo salva in PDF. 
+    Se target_leaf è specificato, ingrandisce il testo di quell'intero ramo fino alla radice.
+    """
     plt.figure(figsize=(60, 32))
-
-    # 1. Creiamo un set per una ricerca più efficiente
     original_set = set(original_concepts)
-    
     pos = graphviz_layout(G, prog="dot") 
     
-    # Nodi originali (foglie) in blu, nuovi nodi (genitori) in rosso
-    out_degrees = dict(G.out_degree())
+    # Identifica il percorso da evidenziare
+    highlight_nodes = set()
+    if target_leaf and target_leaf in G.nodes():
+        # nx.ancestors trova tutti i nodi sopra la foglia fino alla radice
+        highlight_nodes = nx.ancestors(G, target_leaf)
+        highlight_nodes.add(target_leaf)
+    
+    # Imposta i colori e le dimensioni dei nodi (più grandi per il ramo evidenziato)
     node_colors = ['lightgreen' if n in original_set else 'lightcoral' for n in G.nodes()]
+    node_sizes = [1200 if n in highlight_nodes else 600 for n in G.nodes()]
     
-    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=600, alpha=0.8)
-    nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=10, edge_color='gray', alpha=0.5)
-    nx.draw_networkx_labels(G, pos, font_size=8, font_family='sans-serif')
+    # 1. Disegna i nodi
+    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=node_sizes, alpha=0.8)
     
-    plt.title("Gerarchia dei Concetti Estesa", fontsize=20)
+    # 2. Disegna gli archi (più spessi e scuri per il ramo evidenziato)
+    edges = G.edges()
+    edge_colors = ['red' if (u in highlight_nodes and v in highlight_nodes) else 'gray' for u, v in edges]
+    edge_widths = [3 if (u in highlight_nodes and v in highlight_nodes) else 1 for u, v in edges]
+    nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=10, edge_color=edge_colors, width=edge_widths, alpha=0.5)
+    
+    # 3. Disegna le etichette in due gruppi separati
+    if highlight_nodes:
+        # Etichette di background (piccole e grigie)
+        normal_labels = {n: n for n in G.nodes() if n not in highlight_nodes}
+        nx.draw_networkx_labels(G, pos, labels=normal_labels, font_size=8, font_family='sans-serif', font_color='dimgray')
+        
+        # Etichette del ramo evidenziato (grandi, in grassetto e nere)
+        high_labels = {n: n for n in G.nodes() if n in highlight_nodes}
+        nx.draw_networkx_labels(G, pos, labels=high_labels, font_size=42, font_family='sans-serif', font_weight='bold')
+    else:
+        # Comportamento di default se non c'è un target_leaf
+        nx.draw_networkx_labels(G, pos, font_size=8, font_family='sans-serif')
+    
     plt.axis('off')
     plt.tight_layout()
     plt.savefig(output_file, format='pdf', bbox_inches='tight')
